@@ -9,6 +9,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
 const { execSync, spawnSync } = require('child_process');
 const { getPlatform } = require('./platform');
 
@@ -161,6 +162,28 @@ function isInstalled(installDir) {
   return fs.existsSync(installDir) && readVersionMarker(installDir) !== null;
 }
 
+/**
+ * Verify a downloaded file's SHA-256 checksum.
+ * The expected value may be prefixed with "sha256:" (case-insensitive).
+ *
+ * @param {string} filePath  - path to the file to verify
+ * @param {string} expected  - expected checksum, e.g. "sha256:abc123..." or "abc123..."
+ * @throws {Error} if the computed checksum does not match the expected value
+ */
+function verifyChecksum(filePath, expected) {
+  const expectedHex = expected.replace(/^sha256:/i, '').toLowerCase();
+  const fileBuffer = fs.readFileSync(filePath);
+  const actualHex = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+  if (actualHex !== expectedHex) {
+    throw new Error(
+      `Checksum mismatch for ${path.basename(filePath)}:\n` +
+        `  Expected: ${expectedHex}\n` +
+        `  Got:      ${actualHex}\n` +
+        'The file may be corrupted or tampered with. Please re-run the installer.',
+    );
+  }
+}
+
 module.exports = {
   extract,
   extractZip,
@@ -171,4 +194,5 @@ module.exports = {
   writeVersionMarker,
   readVersionMarker,
   isInstalled,
+  verifyChecksum,
 };

@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
 
 const {
   writeVersionMarker,
@@ -14,6 +15,7 @@ const {
   removeBackup,
   restoreBackup,
   extractZip,
+  verifyChecksum,
 } = require('../lib/installer');
 
 const { buildZip } = require('./integration/mock-server');
@@ -141,5 +143,61 @@ describe('extractZip', () => {
 
     assert.ok(fs.existsSync(destDir), 'destDir should have been created');
     assert.ok(fs.existsSync(path.join(destDir, 'f.txt')));
+  });
+});
+
+// ── verifyChecksum ────────────────────────────────────────────────────────────
+
+describe('verifyChecksum', () => {
+  const csTmpBase = path.join(os.tmpdir(), `oclaw-checksum-test-${Date.now()}`);
+
+  before(() => fs.mkdirSync(csTmpBase, { recursive: true }));
+  after(() => fs.rmSync(csTmpBase, { recursive: true, force: true }));
+
+  /** Write content to a tmp file and return its path + sha256 hex. */
+  function makeTmpFile(name, content) {
+    const filePath = path.join(csTmpBase, name);
+    const buf = Buffer.from(content, 'utf-8');
+    fs.writeFileSync(filePath, buf);
+    const hash = crypto.createHash('sha256').update(buf).digest('hex');
+    return { filePath, hash };
+  }
+
+  test('passes when checksum matches (plain hex)', () => {
+    const { filePath, hash } = makeTmpFile('ok-plain.txt', 'hello world');
+    assert.doesNotThrow(() => verifyChecksum(filePath, hash));
+  });
+
+  test('passes when checksum matches (sha256: prefix)', () => {
+    const { filePath, hash } = makeTmpFile('ok-prefix.txt', 'hello world');
+    assert.doesNotThrow(() => verifyChecksum(filePath, `sha256:${hash}`));
+  });
+
+  test('passes when checksum matches (SHA256: uppercase prefix)', () => {
+    const { filePath, hash } = makeTmpFile('ok-upper.txt', 'case insensitive prefix');
+    assert.doesNotThrow(() => verifyChecksum(filePath, `SHA256:${hash}`));
+  });
+
+  test('throws on checksum mismatch', () => {
+    const { filePath } = makeTmpFile('bad.txt', 'real content');
+    const wrongHash = 'a'.repeat(64);
+    assert.throws(
+      () => verifyChecksum(filePath, wrongHash),
+      /checksum mismatch/i,
+    );
+  });
+
+  test('error message includes expected and actual hex', () => {
+    const { filePath, hash } = makeTmpFile('msg-test.txt', 'some data');
+    const wrongHash = 'b'.repeat(64);
+    let caught;
+    try {
+      verifyChecksum(filePath, wrongHash);
+    } catch (err) {
+      caught = err;
+    }
+    assert.ok(caught, 'should have thrown');
+    assert.ok(caught.message.includes(wrongHash), 'message should contain expected hash');
+    assert.ok(caught.message.includes(hash), 'message should contain actual hash');
   });
 });

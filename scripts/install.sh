@@ -113,6 +113,29 @@ fetch() {
   fi
 }
 
+# ── SHA-256 verification helper ───────────────────────────────────────────────
+# Usage: verify_sha256 <file> <expected_hex>
+# Calls die() on mismatch. Issues a warning and returns 0 if no sha256 tool is found.
+verify_sha256() {
+  local file="$1" expected="$2"
+  local actual=""
+  if command -v sha256sum &>/dev/null; then
+    actual=$(sha256sum "$file" | awk '{print $1}')
+  elif command -v shasum &>/dev/null; then
+    actual=$(shasum -a 256 "$file" | awk '{print $1}')
+  else
+    warn "Cannot verify checksum: neither sha256sum nor shasum is available."
+    return 0
+  fi
+  if [ "$actual" != "$expected" ]; then
+    die "Checksum mismatch for $(basename "$file"):
+  Expected: $expected
+  Got:      $actual
+  The downloaded file may be corrupted or tampered with. Please re-run the installer."
+  fi
+  verbose "Checksum verified: $actual"
+}
+
 # ── Download helper (to file) ─────────────────────────────────────────────────
 download() {
   local url="$1" dest="$2"
@@ -352,13 +375,37 @@ _install_from_cdn() {
   esac
   verbose "Platform: ${os_name}-${arch_name}"
 
-  # Resolve CLI version
+  # Resolve CLI version and fetch checksum from the manifest in one request.
   local cli_ver="$CLI_VERSION"
+  local cli_manifest=""
   if [ "$cli_ver" = "latest" ]; then
     info "Fetching latest CLI version…"
-    cli_ver=$(fetch "$CDN_BASE/cli-manifest.json" \
+    cli_manifest=$(fetch "$CDN_BASE/cli-manifest.json")
+    cli_ver=$(echo "$cli_manifest" \
       | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>process.stdout.write(JSON.parse(d).latest))")
     info "Latest CLI version: $cli_ver"
+  else
+    # Still fetch the manifest so we can verify the checksum.
+    cli_manifest=$(fetch "$CDN_BASE/cli-manifest.json" 2>/dev/null || true)
+  fi
+
+  # Extract expected SHA-256 checksum for the current platform from the manifest.
+  local platform_key="${os_name}-${arch_name}"
+  local expected_checksum=""
+  if [ -n "$cli_manifest" ]; then
+    expected_checksum=$(echo "$cli_manifest" \
+      | OCLAW_CLI_VER="$cli_ver" OCLAW_PLATFORM_KEY="$platform_key" \
+        node -e "
+let d='';
+process.stdin.on('data',c=>d+=c);
+process.stdin.on('end',()=>{
+  try{
+    const m=JSON.parse(d);
+    const ver=(m.versions||[]).find(v=>v.version===process.env.OCLAW_CLI_VER);
+    const cs=ver&&ver.checksums&&ver.checksums[process.env.OCLAW_PLATFORM_KEY];
+    if(cs)process.stdout.write(cs.replace(/^sha256:/i,''));
+  }catch(e){}
+})" 2>/dev/null || true)
   fi
 
   local tmp_dir
@@ -373,6 +420,15 @@ _install_from_cdn() {
 
   info "Downloading oclaw CLI $cli_ver…"
   download "$pkg_url" "$pkg_path"
+
+  # Verify SHA-256 checksum of the downloaded package.
+  if [ -n "$expected_checksum" ]; then
+    info "Verifying checksum…"
+    verify_sha256 "$pkg_path" "$expected_checksum"
+    success "Checksum verified."
+  else
+    warn "No checksum available for ${platform_key} in CLI manifest; skipping verification."
+  fi
 
   info "Extracting…"
   tar -xzf "$pkg_path" -C "$tmp_dir"
