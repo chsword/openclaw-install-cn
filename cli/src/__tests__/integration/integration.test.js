@@ -173,6 +173,18 @@ describe('integration: status and config', () => {
     assert.match(r.output.trim(), /^\d+\.\d+\.\d+$/);
   });
 
+  test('oclaw -v outputs semver', { timeout: 15000 }, async () => {
+    const r = await runCli(['-v'], tmpHome);
+    assert.strictEqual(r.exitCode, 0);
+    assert.match(r.output.trim(), /^\d+\.\d+\.\d+$/);
+  });
+
+  test('oclaw version subcommand outputs semver', { timeout: 15000 }, async () => {
+    const r = await runCli(['version'], tmpHome);
+    assert.strictEqual(r.exitCode, 0);
+    assert.match(r.output.trim(), /^\d+\.\d+\.\d+$/);
+  });
+
   test('oclaw --help shows available commands', { timeout: 15000 }, async () => {
     const r = await runCli(['--help'], tmpHome);
     assert.strictEqual(r.exitCode, 0);
@@ -180,6 +192,7 @@ describe('integration: status and config', () => {
     assert.match(r.output, /upgrade/);
     assert.match(r.output, /status/);
     assert.match(r.output, /config/);
+    assert.match(r.output, /version/);
   });
 });
 
