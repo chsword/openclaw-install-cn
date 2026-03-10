@@ -1,7 +1,7 @@
 {
   "name": "openclaw-gui",
   "version": "1.0.0",
-  "description": "OpenClaw Windows GUI installer/updater",
+  "description": "OpenClaw cross-platform GUI installer/updater",
   "repository": {
     "type": "git",
     "url": "https://github.com/chsword/openclaw-install-cn.git"
@@ -20,7 +20,9 @@
     "openclaw",
     "installer",
     "electron",
-    "windows"
+    "windows",
+    "macos",
+    "linux"
   ],
   "author": "",
   "license": "MIT",
@@ -48,11 +50,14 @@
       ]
     },
     "mac": {
+      "icon": "assets/icon.icns",
+      "category": "public.app-category.utilities",
       "target": [
         { "target": "dmg", "arch": ["x64", "arm64"] }
       ]
     },
     "linux": {
+      "icon": "assets/icon.png",
       "target": [
         { "target": "AppImage", "arch": ["x64"] }
       ]

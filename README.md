@@ -146,6 +146,8 @@ npm start
 ```bash
 cd gui
 npm run build        # Windows NSIS 安装包 + 便携版
+npm run build:mac    # macOS DMG（x64 + arm64）
+npm run build:linux  # Linux AppImage（x64）
 npm run build:all    # Windows / macOS / Linux 全平台
 ```
 
