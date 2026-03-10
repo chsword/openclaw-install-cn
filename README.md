@@ -146,7 +146,7 @@ npm start
 
 ### 界面预览
 
-![GUI 主界面](https://github.com/user-attachments/assets/60d4e768-fc32-4f81-8eb9-bbbf7d060af4)
+![GUI 主界面](https://github.com/user-attachments/assets/e7064f9e-d007-4ffb-bc26-6d978c4c40f5)
 
 ### 构建发布包
 
