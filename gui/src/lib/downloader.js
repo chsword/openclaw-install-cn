@@ -11,6 +11,7 @@ const https = require('https');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { URL } = require('url');
 const { progress, progressEnd } = require('./logger');
 
@@ -207,4 +208,56 @@ function downloadFile(url, dest, opts = {}) {
   })();
 }
 
-module.exports = { downloadFile };
+/**
+ * Compute the SHA-256 hash of a file.
+ * @param {string} filePath
+ * @returns {Promise<string>} hex digest
+ */
+function hashFile(filePath) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    const stream = fs.createReadStream(filePath);
+    stream.on('data', (chunk) => hash.update(chunk));
+    stream.on('end', () => {
+      stream.destroy();
+      resolve(hash.digest('hex'));
+    });
+    stream.on('error', (err) => {
+      stream.destroy();
+      reject(err);
+    });
+  });
+}
+
+/**
+ * Verify the SHA-256 checksum of a downloaded file.
+ *
+ * The expected value may be prefixed with "sha256:" (e.g. "sha256:abc123…").
+ * Throws an Error if the computed digest does not match, with a message that
+ * encourages the user to retry the download.
+ *
+ * Silently skips verification when the expected value is not a valid
+ * 64-character hex string (e.g. a placeholder like "REPLACE_WITH_ACTUAL_CHECKSUM").
+ *
+ * @param {string} filePath - path to the file to verify
+ * @param {string} expected - expected SHA-256 digest, optionally prefixed with "sha256:"
+ * @returns {Promise<void>}
+ */
+async function verifyChecksum(filePath, expected) {
+  const normalised = expected.replace(/^sha256:/i, '').toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(normalised)) {
+    // Not a valid SHA-256 hex digest — skip verification (placeholder value).
+    return;
+  }
+  const actual = await hashFile(filePath);
+  if (actual !== normalised) {
+    throw new Error(
+      `Checksum mismatch for ${path.basename(filePath)}:\n` +
+        `  Expected: ${normalised}\n` +
+        `  Actual:   ${actual}\n` +
+        'The file may be corrupted or tampered with. Please try downloading again.',
+    );
+  }
+}
+
+module.exports = { downloadFile, verifyChecksum };

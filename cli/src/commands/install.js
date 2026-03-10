@@ -11,7 +11,7 @@ const path = require('path');
 const os = require('os');
 const { loadConfig, updateConfig } = require('../lib/config');
 const { getVersionInfo, buildDownloadUrl } = require('../lib/registry');
-const { downloadFile } = require('../lib/downloader');
+const { downloadFile, verifyChecksum } = require('../lib/downloader');
 const {
   extract,
   backupInstallation,
@@ -180,6 +180,23 @@ async function runInstall(options = {}) {
     }
 
     log.success('Download complete.');
+
+    // ── Integrity check ───────────────────────────────────────────────────────
+    const checksum = versionInfo.checksums && versionInfo.checksums[platformKey];
+    if (checksum) {
+      log.step('Verifying file integrity...');
+      try {
+        await verifyChecksum(archivePath, checksum);
+        log.success('Checksum verified.');
+      } catch (err) {
+        log.error(err.message);
+        log.dim('Please run the install command again to re-download the file.');
+        try { fs.unlinkSync(archivePath); } catch (cleanupErr) {
+          log.warn(`Could not remove corrupted download: ${cleanupErr.message}`);
+        }
+        process.exit(1);
+      }
+    }
   }
 
   const version = versionInfo.version;

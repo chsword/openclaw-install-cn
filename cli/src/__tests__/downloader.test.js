@@ -20,7 +20,7 @@ const http   = require('http');
 const path   = require('path');
 const os     = require('os');
 
-const { downloadFile } = require('../lib/downloader');
+const { downloadFile, verifyChecksum } = require('../lib/downloader');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -319,6 +319,42 @@ describe('downloader', () => {
     } finally {
       await stopServer(server);
     }
+  });
+
+  // ── verifyChecksum ──────────────────────────────────────────────────────────
+
+  test('verifyChecksum passes when digest matches', async () => {
+    const content = Buffer.from('hello checksum');
+    const file = path.join(tmpBase, 'checksum-ok.bin');
+    fs.writeFileSync(file, content);
+
+    const crypto = require('crypto');
+    const expected = crypto.createHash('sha256').update(content).digest('hex');
+
+    // Should resolve without throwing
+    await verifyChecksum(file, expected);
+    await verifyChecksum(file, `sha256:${expected}`);
+  });
+
+  test('verifyChecksum rejects when digest does not match', async () => {
+    const file = path.join(tmpBase, 'checksum-bad.bin');
+    fs.writeFileSync(file, Buffer.from('tampered content'));
+
+    const wrongDigest = 'a'.repeat(64); // all-'a' hex string, not the real hash
+    await assert.rejects(
+      verifyChecksum(file, wrongDigest),
+      /checksum mismatch/i,
+    );
+  });
+
+  test('verifyChecksum skips verification for placeholder values', async () => {
+    const file = path.join(tmpBase, 'checksum-skip.bin');
+    fs.writeFileSync(file, Buffer.from('any content'));
+
+    // Placeholder values (not a valid 64-char hex) should be silently skipped
+    await verifyChecksum(file, 'REPLACE_WITH_ACTUAL_CHECKSUM');
+    await verifyChecksum(file, 'sha256:REPLACE_WITH_ACTUAL_CHECKSUM');
+    await verifyChecksum(file, '');
   });
 
   // ── Options passthrough ─────────────────────────────────────────────────────

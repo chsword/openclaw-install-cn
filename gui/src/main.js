@@ -246,6 +246,13 @@ ipcMain.handle('install', async (_event, opts = {}) => {
       },
     });
 
+    // ── Integrity check ───────────────────────────────────────────────────────
+    const checksum = versionInfo.checksums && versionInfo.checksums[platformKey];
+    if (checksum) {
+      send('status', { message: 'Verifying file integrity…' });
+      await downloaderLib.verifyChecksum(tmpFile, checksum);
+    }
+
     send('status', { message: 'Download complete. Installing…' });
 
     let backupDir = null;
