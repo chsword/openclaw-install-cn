@@ -10,23 +10,50 @@ const { loadConfig } = require('../lib/config');
 const { getLatestVersion } = require('../lib/registry');
 const { readVersionMarker, isInstalled } = require('../lib/installer');
 const { getPlatformLabel, getArch } = require('../lib/platform');
+const { compareSemver } = require('./upgrade');
 const log = require('../lib/logger');
 
 /**
  * Run the status command.
  * @param {Object} options
  * @param {boolean} [options.checkUpdates] - also check CDN for latest version
+ * @param {boolean} [options.json]         - output result as JSON
  */
 async function runStatus(options = {}) {
   const config = loadConfig();
   const installDir = config.installDir;
 
+  const installed = isInstalled(installDir);
+  const installedVersion = installed ? readVersionMarker(installDir) : config.installedVersion;
+
+  if (options.json) {
+    const result = {
+      platform: getPlatformLabel(),
+      arch: getArch(),
+      installDir,
+      installed,
+      installedVersion: installedVersion || null,
+      cdnBase: config.cdnBase,
+    };
+
+    if (options.checkUpdates) {
+      try {
+        const latest = await getLatestVersion(config.cdnBase);
+        result.latestVersion = latest;
+        result.updateAvailable = !!installedVersion && compareSemver(latest, installedVersion) > 0;
+      } catch (err) {
+        result.latestVersion = null;
+        result.latestVersionError = err.message;
+      }
+    }
+
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
   console.log('');
   console.log('  \x1b[1mOpenClaw Installation Status\x1b[0m');
   console.log('  ' + '─'.repeat(40));
-
-  const installed = isInstalled(installDir);
-  const installedVersion = installed ? readVersionMarker(installDir) : config.installedVersion;
 
   console.log(`  Platform   : ${getPlatformLabel()} (${getArch()})`);
   console.log(`  Install Dir: ${installDir}`);
