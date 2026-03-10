@@ -5,7 +5,6 @@ const elInstalledVersion = document.getElementById('val-installed-version');
 const elLatestVersion    = document.getElementById('val-latest-version');
 const elInstallDir       = document.getElementById('val-install-dir');
 const elPlatform         = document.getElementById('val-platform');
-const elCdn              = document.getElementById('val-cdn');
 
 const btnInstall         = document.getElementById('btn-install');
 const btnCheck           = document.getElementById('btn-check');
@@ -21,7 +20,6 @@ const tabBtnConfig       = document.getElementById('tab-btn-config');
 const tabBtnLogs         = document.getElementById('tab-btn-logs');
 const tabConfig          = document.getElementById('tab-config');
 const tabLogs            = document.getElementById('tab-logs');
-const inpCdn             = document.getElementById('inp-cdn');
 const inpDir             = document.getElementById('inp-dir');
 const btnSaveSettings    = document.getElementById('btn-save-settings');
 const btnCancelSettings  = document.getElementById('btn-cancel-settings');
@@ -75,7 +73,6 @@ async function loadStatus() {
     currentStatus = await window.oclaw.getStatus();
 
     elPlatform.textContent = `${currentStatus.platform} (${currentStatus.arch})`;
-    elCdn.textContent = currentStatus.cdnBase;
     elInstallDir.textContent = currentStatus.installDir;
 
     if (currentStatus.installed && currentStatus.installedVersion) {
@@ -180,7 +177,6 @@ function switchSettingsTab(tab) {
 
 function openSettings() {
   if (!currentStatus) return;
-  inpCdn.value = currentStatus.cdnBase || '';
   inpDir.value = currentStatus.installDir || '';
   switchSettingsTab('config');
   cardSettings.style.display = 'block';
@@ -195,7 +191,6 @@ function closeSettings() {
 
 async function saveSettings() {
   const updates = {};
-  if (inpCdn.value.trim()) updates.cdnBase = inpCdn.value.trim();
   if (inpDir.value.trim()) updates.installDir = inpDir.value.trim();
   await window.oclaw.setConfig(updates);
   closeSettings();

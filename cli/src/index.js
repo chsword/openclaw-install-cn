@@ -1,13 +1,13 @@
 'use strict';
 
 /**
- * oclaw - OpenClaw installer/updater CLI for China mainland / restricted networks.
+ * oclaw <command> [options]
  *
  * Usage:
  *   oclaw install [--version <ver>] [--dir <path>] [--force]
  *   oclaw upgrade [--check]
  *   oclaw status  [--check-updates]
- *   oclaw config  [--cdn-url <url>] [--dir <path>] [--reset] [--list]
+ *   oclaw config  [--dir <path>] [--reset] [--list]
  *   oclaw version
  */
 
@@ -56,7 +56,6 @@ program
 program
   .command('config')
   .description('View or update oclaw configuration')
-  .option('--cdn-url <url>', 'set the CDN base URL')
   .option('--dir <path>', 'set the installation directory')
   .option('--reset', 'reset configuration to defaults', false)
   .option('--list', 'list current configuration (default action)', false)

@@ -132,17 +132,7 @@ describe('integration: status and config', () => {
     const r = await runCli(['config', '--list'], tmpHome);
     assert.strictEqual(r.exitCode, 0, `Expected exit 0\n${r.output}`);
     assert.match(r.output, /CDN/i);
-    assert.match(r.output, /openclaw-cdn\.example\.com/);
-  });
-
-  test('oclaw config --cdn-url updates CDN URL', { timeout: 15000 }, async () => {
-    const newUrl = 'https://my-cdn.test';
-    const r1 = await runCli(['config', '--cdn-url', newUrl], tmpHome);
-    assert.strictEqual(r1.exitCode, 0, `config set failed\n${r1.output}`);
-
-    const r2 = await runCli(['config', '--list'], tmpHome);
-    // Match the specific CDN URL line in the config output
-    assert.match(r2.output, /CDN URL\s*:\s*https:\/\/my-cdn\.test/);
+    assert.match(r.output, /oclaw\.chatu\.plus/);
   });
 
   test('oclaw config --dir updates install directory', { timeout: 15000 }, async () => {
@@ -155,16 +145,16 @@ describe('integration: status and config', () => {
   });
 
   test('oclaw config --reset restores defaults', { timeout: 15000 }, async () => {
-    // Set a custom CDN first
-    await runCli(['config', '--cdn-url', 'https://custom.test'], tmpHome);
+    // Set a custom install dir first
+    await runCli(['config', '--dir', path.join(tmpHome, 'custom')], tmpHome);
 
     // Then reset
     const r = await runCli(['config', '--reset'], tmpHome);
     assert.strictEqual(r.exitCode, 0, `config reset failed\n${r.output}`);
 
-    // Confirm CDN reverted to placeholder
+    // Confirm CDN URL is still the hardcoded default after reset
     const r2 = await runCli(['config', '--list'], tmpHome);
-    assert.match(r2.output, /openclaw-cdn\.example\.com/);
+    assert.match(r2.output, /oclaw\.chatu\.plus/);
   });
 
   test('oclaw --version outputs semver', { timeout: 15000 }, async () => {
@@ -229,22 +219,33 @@ describe('integration: install and upgrade', () => {
 
   // ── Helpers local to this suite ──────────────────────────────────────────
 
-  /** Pre-seed the config so install picks up the mock CDN URL. */
+  /** Pre-seed the installDir and installedVersion for the mock CDN tests. */
   function seedCdnConfig(extraConfig = {}) {
     seedConfig(tmpHome, {
-      cdnBase:          serverUrl,
       installDir:       installDir,
       installedVersion: null,
       ...extraConfig,
     });
   }
 
-  // ── Tests ────────────────────────────────────────────────────────────────
+  /**
+   * Run the CLI with the mock CDN server injected via OCLAW_CDN env var.
+   * All install/upgrade tests in this suite must use this instead of runCli.
+   *
+   * Callers may override OCLAW_CDN via `opts.env` (e.g. to simulate an
+   * unreachable CDN by passing `{ OCLAW_CDN: 'http://127.0.0.1:1' }`).
+   */
+  function runCliMock(args, opts = {}) {
+    return runCli(args, tmpHome, {
+      ...opts,
+      env: { OCLAW_CDN: serverUrl, ...(opts.env || {}) },
+    });
+  }
 
   test('oclaw install downloads and installs from mock CDN', { timeout: 30000 }, async () => {
     seedCdnConfig();
 
-    const r = await runCli(['install', '--dir', installDir], tmpHome);
+    const r = await runCliMock(['install', '--dir', installDir]);
     assert.strictEqual(r.exitCode, 0, `install failed\n${r.output}`);
     assert.match(r.output, /installed successfully/i);
 
@@ -256,9 +257,9 @@ describe('integration: install and upgrade', () => {
 
   test('oclaw status shows installed version after install', { timeout: 30000 }, async () => {
     seedCdnConfig();
-    await runCli(['install', '--dir', installDir], tmpHome);
+    await runCliMock(['install', '--dir', installDir]);
 
-    const r = await runCli(['status'], tmpHome);
+    const r = await runCliMock(['status']);
     assert.strictEqual(r.exitCode, 0);
     assert.match(r.output, /1\.0\.0/);
   });
@@ -266,17 +267,17 @@ describe('integration: install and upgrade', () => {
   test('oclaw install skips when already at same version', { timeout: 30000 }, async () => {
     seedCdnConfig();
     // First install
-    await runCli(['install', '--dir', installDir], tmpHome);
+    await runCliMock(['install', '--dir', installDir]);
     // Second install (same version, no --force)
-    const r = await runCli(['install', '--dir', installDir], tmpHome);
+    const r = await runCliMock(['install', '--dir', installDir]);
     assert.strictEqual(r.exitCode, 0, `second install failed\n${r.output}`);
     assert.match(r.output, /already installed/i);
   });
 
   test('oclaw install --force reinstalls even when up to date', { timeout: 30000 }, async () => {
     seedCdnConfig();
-    await runCli(['install', '--dir', installDir], tmpHome);
-    const r = await runCli(['install', '--dir', installDir, '--force'], tmpHome);
+    await runCliMock(['install', '--dir', installDir]);
+    const r = await runCliMock(['install', '--dir', installDir, '--force']);
     assert.strictEqual(r.exitCode, 0, `force reinstall failed\n${r.output}`);
     assert.match(r.output, /installed successfully/i);
     // Marker still present
@@ -287,12 +288,11 @@ describe('integration: install and upgrade', () => {
   });
 
   test('oclaw install fails gracefully when CDN is unreachable', { timeout: 15000 }, async () => {
-    seedConfig(tmpHome, {
-      cdnBase:   'http://127.0.0.1:1',  // nothing listening here
-      installDir,
-      installedVersion: null,
+    seedConfig(tmpHome, { installDir, installedVersion: null });
+    // Override OCLAW_CDN to an intentionally unreachable address
+    const r = await runCliMock(['install', '--dir', installDir], {
+      env: { OCLAW_CDN: 'http://127.0.0.1:1' },
     });
-    const r = await runCli(['install', '--dir', installDir], tmpHome);
     assert.notEqual(r.exitCode, 0, 'Should exit with non-zero when CDN is unreachable');
     assert.match(r.output, /error|fail|unable|ECONNREFUSED/i);
   });
@@ -303,7 +303,7 @@ describe('integration: install and upgrade', () => {
     fs.mkdirSync(installDir, { recursive: true });
     fs.writeFileSync(path.join(installDir, '.oclaw-version'), '1.0.0');
 
-    const r = await runCli(['upgrade', '--check'], tmpHome);
+    const r = await runCliMock(['upgrade', '--check']);
     assert.strictEqual(r.exitCode, 0, `upgrade --check failed\n${r.output}`);
     assert.match(r.output, /up to date/i);
   });
@@ -311,12 +311,12 @@ describe('integration: install and upgrade', () => {
   test('oclaw upgrade --check detects newer version without installing', { timeout: 30000 }, async () => {
     // Install 1.0.0 first
     seedCdnConfig();
-    await runCli(['install', '--dir', installDir], tmpHome);
+    await runCliMock(['install', '--dir', installDir]);
 
     // CDN now advertises 1.1.0
     server.setLatestVersion('1.1.0');
 
-    const r = await runCli(['upgrade', '--check'], tmpHome);
+    const r = await runCliMock(['upgrade', '--check']);
     assert.strictEqual(r.exitCode, 0, `upgrade --check failed\n${r.output}`);
     assert.match(r.output, /1\.1\.0/);
 
@@ -328,12 +328,12 @@ describe('integration: install and upgrade', () => {
   test('oclaw upgrade installs newer version when available', { timeout: 30000 }, async () => {
     // Install 1.0.0 first
     seedCdnConfig();
-    await runCli(['install', '--dir', installDir], tmpHome);
+    await runCliMock(['install', '--dir', installDir]);
 
     // CDN now advertises 1.1.0
     server.setLatestVersion('1.1.0');
 
-    const r = await runCli(['upgrade'], tmpHome);
+    const r = await runCliMock(['upgrade']);
     assert.strictEqual(r.exitCode, 0, `upgrade failed\n${r.output}`);
     assert.match(r.output, /installed successfully|1\.1\.0/i);
 
@@ -345,18 +345,19 @@ describe('integration: install and upgrade', () => {
   test('oclaw upgrade --check exits non-zero when not installed', { timeout: 15000 }, async () => {
     seedCdnConfig({ installedVersion: null });
     // installDir does not exist
-    const r = await runCli(['upgrade', '--check'], tmpHome);
+    const r = await runCliMock(['upgrade', '--check']);
     assert.notEqual(r.exitCode, 0, 'upgrade without any install should exit non-zero');
     assert.match(r.output, /not.*installed|install.*first/i);
   });
 
   test('oclaw config + install flow without pre-seeded config', { timeout: 30000 }, async () => {
-    // Only set the CDN URL through the CLI — no direct file manipulation
-    const r1 = await runCli(['config', '--cdn-url', serverUrl, '--dir', installDir], tmpHome);
+    // Use the CLI to set the install directory. The CDN URL is fixed (OCLAW_CDN env var
+    // is used by runCliMock to point at the mock server for all CLI invocations).
+    const r1 = await runCliMock(['config', '--dir', installDir]);
     assert.strictEqual(r1.exitCode, 0);
 
-    const r2 = await runCli(['install'], tmpHome);
-    assert.strictEqual(r2.exitCode, 0, `install via config-set CDN failed\n${r2.output}`);
+    const r2 = await runCliMock(['install']);
+    assert.strictEqual(r2.exitCode, 0, `install via config-set dir failed\n${r2.output}`);
     assert.match(r2.output, /installed successfully/i);
 
     const marker = fs.readFileSync(path.join(installDir, '.oclaw-version'), 'utf-8').trim();

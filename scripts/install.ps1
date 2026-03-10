@@ -6,8 +6,6 @@
   Downloads the oclaw CLI from CDN and installs OpenClaw.
   Does NOT require internet access to npm or GitHub.
   Auto-installs Node.js LTS if it is not already present.
-.PARAMETER CdnBase
-  CDN base URL. Default: https://openclaw-cdn.example.com
 .PARAMETER CliVersion
   CLI version to download. Default: latest
 .PARAMETER InstallDir
@@ -34,10 +32,9 @@
   to the console. Defaults to a timestamped file in %TEMP%.
   Can also be set via the OCLAW_LOG_FILE environment variable.
 .EXAMPLE
-  irm https://your-cdn.example.com/install.ps1 | iex
-  # Custom CDN + China Node mirror:
-  & ([scriptblock]::Create((irm https://your-cdn.example.com/install.ps1))) `
-      -CdnBase "https://your-cdn.example.com" `
+  irm https://oclaw.chatu.plus/install.ps1 | iex
+  # China Node mirror:
+  & ([scriptblock]::Create((irm https://oclaw.chatu.plus/install.ps1))) `
       -NodeMirror "https://npmmirror.com/mirrors/node"
   # Offline local bundle:
   & ([scriptblock]::Create((Get-Content install.ps1 -Raw))) `
@@ -45,11 +42,11 @@
   # Custom log file + verbose output:
   $env:OCLAW_LOG_FILE = "C:\logs\openclaw.log"
   $env:OCLAW_VERBOSE  = "1"
-  irm https://your-cdn.example.com/install.ps1 | iex
+  irm https://oclaw.chatu.plus/install.ps1 | iex
 #>
 [CmdletBinding()]
 param(
-  [string]$CdnBase        = $(if ($env:OCLAW_CDN)              { $env:OCLAW_CDN }              else { 'https://openclaw-cdn.example.com' }),
+  [string]$CdnBase        = 'https://oclaw.chatu.plus',
   [string]$CliVersion     = 'latest',
   [string]$InstallDir     = '',
   [string]$LocalBundle    = $(if ($env:OCLAW_LOCAL_BUNDLE)     { $env:OCLAW_LOCAL_BUNDLE }     else { '' }),
@@ -405,9 +402,6 @@ function Install-FromCdn {
 
   # Add to PATH for this session
   $env:Path = "$OclawBinDir;$env:Path"
-
-  # Set CDN config
-  & "$OclawBinDir\oclaw.exe" config --cdn-url "$CdnBase" 2>$null
 
   # Install OpenClaw
   Write-Info "Installing OpenClaw from CDN ($CdnBase)..."

@@ -3,9 +3,9 @@
 # OpenClaw Installer Bootstrap – macOS / Linux
 # ============================================================
 # Usage:
-#   curl -fsSL https://your-cdn.example.com/install.sh | bash
+#   curl -fsSL https://oclaw.chatu.plus/install.sh | bash
 #   or
-#   wget -qO- https://your-cdn.example.com/install.sh | bash
+#   wget -qO- https://oclaw.chatu.plus/install.sh | bash
 #
 # The script will:
 #   1. Check for Node.js (>=18); auto-installs Node.js LTS if absent
@@ -54,7 +54,7 @@
 set -euo pipefail
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-CDN_BASE="${OCLAW_CDN:-https://openclaw-cdn.example.com}"
+CDN_BASE="https://oclaw.chatu.plus"
 CLI_VERSION="${OCLAW_CLI_VERSION:-latest}"
 INSTALL_DIR="${OCLAW_INSTALL_DIR:-$HOME/.openclaw}"
 OCLAW_BIN_DIR="${OCLAW_BIN_DIR:-$HOME/.local/bin}"
@@ -441,9 +441,6 @@ process.stdin.on('end',()=>{
   chmod +x "$bin_src"
   cp "$bin_src" "$OCLAW_BIN_DIR/oclaw"
   success "oclaw CLI installed to $OCLAW_BIN_DIR/oclaw"
-
-  # Set CDN in config
-  "$OCLAW_BIN_DIR/oclaw" config --cdn-url "$CDN_BASE" || true
 
   # Install OpenClaw
   info "Installing OpenClaw from CDN ($CDN_BASE)…"

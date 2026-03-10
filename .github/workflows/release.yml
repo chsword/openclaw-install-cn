@@ -520,8 +520,6 @@ jobs:
 
           **使用方式：**
           \`\`\`bash
-          # 配置 CDN 地址
-          oclaw config --cdn-url https://your-cdn.example.com
           # 安装 OpenClaw
           oclaw install
           # 检查和升级
@@ -547,14 +545,12 @@ jobs:
 
           **macOS / Linux 使用方式：**
           \`\`\`bash
-          OCLAW_CDN=https://your-cdn.example.com \\
-            curl -fsSL https://your-cdn.example.com/install.sh | bash
+          curl -fsSL https://oclaw.chatu.plus/install.sh | bash
           \`\`\`
 
           **Windows 使用方式：**
           \`\`\`powershell
-          \$env:OCLAW_CDN = "https://your-cdn.example.com"
-          irm https://your-cdn.example.com/install.ps1 | iex
+          irm https://oclaw.chatu.plus/install.ps1 | iex
           \`\`\`
 
           ### 📋 CDN 模板文件
@@ -594,3 +590,230 @@ jobs:
             cdn-template/manifest.json
             cdn-template/cli-manifest.json
             artifacts/checksums.sha256
+
+  # ── 7. Upload to Tencent COS (official CDN) ────────────────────────────────
+  deploy-to-cos:
+    name: Upload to Tencent COS
+    needs: release
+    runs-on: ubuntu-latest
+    environment: TencentSecretId
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Extract version
+        id: ver
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Download CLI binaries
+        uses: actions/download-artifact@v8
+        with:
+          name: cli-binaries
+          path: artifacts/cli/
+
+      - name: Download Windows GUI
+        uses: actions/download-artifact@v8
+        with:
+          name: gui-win
+          path: artifacts/gui/win/
+
+      - name: Download macOS GUI
+        uses: actions/download-artifact@v8
+        with:
+          name: gui-mac
+          path: artifacts/gui/mac/
+
+      - name: Download Linux GUI
+        uses: actions/download-artifact@v8
+        with:
+          name: gui-linux
+          path: artifacts/gui/linux/
+
+      - name: Make CLI binaries executable
+        # chmod may fail on non-POSIX filesystems; non-unix binaries don't need +x anyway.
+        run: chmod +x artifacts/cli/oclaw-darwin-x64 artifacts/cli/oclaw-darwin-arm64 artifacts/cli/oclaw-linux-x64 2>/dev/null || true
+
+      - name: Package CLI and GUI archives for COS
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          mkdir -p cdn-packages
+
+          # CLI packages
+          (cd artifacts/cli && zip "$OLDPWD/cdn-packages/oclaw-${VERSION}-win32-x64.zip" oclaw-win-x64.exe)
+          (cd artifacts/cli && tar -czf "$OLDPWD/cdn-packages/oclaw-${VERSION}-darwin-x64.tar.gz" oclaw-darwin-x64)
+          (cd artifacts/cli && tar -czf "$OLDPWD/cdn-packages/oclaw-${VERSION}-darwin-arm64.tar.gz" oclaw-darwin-arm64)
+          (cd artifacts/cli && tar -czf "$OLDPWD/cdn-packages/oclaw-${VERSION}-linux-x64.tar.gz" oclaw-linux-x64)
+
+          # GUI packages
+          WIN_EXE=$(find artifacts/gui/win -name "*.exe" | sort | head -1)
+          MAC_X64_DMG=$(find artifacts/gui/mac -name "*x64*.dmg" | sort | head -1)
+          MAC_ARM64_DMG=$(find artifacts/gui/mac -name "*arm64*.dmg" | sort | head -1)
+          LINUX_APPIMAGE=$(find artifacts/gui/linux -name "*.AppImage" | sort | head -1)
+
+          [ -n "$WIN_EXE" ]        && (cd "$(dirname "$WIN_EXE")"        && zip     "$OLDPWD/cdn-packages/openclaw-${VERSION}-win32-x64.zip"        "$(basename "$WIN_EXE")")        || true
+          [ -n "$MAC_X64_DMG" ]    && (cd "$(dirname "$MAC_X64_DMG")"    && tar -czf "$OLDPWD/cdn-packages/openclaw-${VERSION}-darwin-x64.tar.gz"   "$(basename "$MAC_X64_DMG")")    || true
+          [ -n "$MAC_ARM64_DMG" ]  && (cd "$(dirname "$MAC_ARM64_DMG")"  && tar -czf "$OLDPWD/cdn-packages/openclaw-${VERSION}-darwin-arm64.tar.gz" "$(basename "$MAC_ARM64_DMG")")  || true
+          [ -n "$LINUX_APPIMAGE" ] && (cd "$(dirname "$LINUX_APPIMAGE")" && tar -czf "$OLDPWD/cdn-packages/openclaw-${VERSION}-linux-x64.tar.gz"    "$(basename "$LINUX_APPIMAGE")") || true
+
+          echo "CDN packages:"
+          ls -lh cdn-packages/
+
+      - name: Update CDN manifests with checksums
+        run: |
+          python3 - <<'EOF'
+          import json, sys, os, hashlib, glob as _glob
+
+          def sha256_file(path):
+              h = hashlib.sha256()
+              with open(path, 'rb') as f:
+                  for chunk in iter(lambda: f.read(65536), b''):
+                      h.update(chunk)
+              return h.hexdigest()
+
+          def checksum_for(pattern, required=False):
+              matches = _glob.glob(pattern)
+              if not matches:
+                  if required:
+                      print(f"ERROR: Required file not found for pattern '{pattern}'", flush=True)
+                      sys.exit(1)
+                  print(f"WARNING: No file found for pattern '{pattern}' – using placeholder")
+                  return 'sha256:REPLACE_WITH_ACTUAL'
+              return 'sha256:' + sha256_file(matches[0])
+
+          version = os.environ.get('VERSION', '')
+          if not version:
+              print("No version set, skipping manifest update")
+              sys.exit(0)
+
+          cdn_dir = 'cdn-packages'
+
+          # CLI packages are required; GUI packages are optional.
+          cli_checksums = {
+              'win32-x64':    checksum_for(f'{cdn_dir}/oclaw-{version}-win32-x64.zip',    required=True),
+              'darwin-x64':   checksum_for(f'{cdn_dir}/oclaw-{version}-darwin-x64.tar.gz',    required=True),
+              'darwin-arm64': checksum_for(f'{cdn_dir}/oclaw-{version}-darwin-arm64.tar.gz', required=True),
+              'linux-x64':    checksum_for(f'{cdn_dir}/oclaw-{version}-linux-x64.tar.gz',    required=True),
+          }
+          gui_checksums = {
+              'win32-x64':    checksum_for(f'{cdn_dir}/openclaw-{version}-win32-x64.zip'),
+              'darwin-x64':   checksum_for(f'{cdn_dir}/openclaw-{version}-darwin-x64.tar.gz'),
+              'darwin-arm64': checksum_for(f'{cdn_dir}/openclaw-{version}-darwin-arm64.tar.gz'),
+              'linux-x64':    checksum_for(f'{cdn_dir}/openclaw-{version}-linux-x64.tar.gz'),
+          }
+
+          manifest_path = 'cdn-template/manifest.json'
+          with open(manifest_path, 'r') as f:
+              manifest = json.load(f)
+          versions = manifest.get('versions', [])
+          if not any(v['version'] == version for v in versions):
+              versions.insert(0, {
+                  "version": version,
+                  "releaseDate": __import__('datetime').date.today().isoformat(),
+                  "description": f"Release {version}",
+                  "files": {
+                      "win32-x64":    f"openclaw-{version}-win32-x64.zip",
+                      "darwin-x64":   f"openclaw-{version}-darwin-x64.tar.gz",
+                      "darwin-arm64": f"openclaw-{version}-darwin-arm64.tar.gz",
+                      "linux-x64":    f"openclaw-{version}-linux-x64.tar.gz"
+                  },
+                  "checksums": gui_checksums
+              })
+              manifest['versions'] = versions
+          manifest['latest'] = version
+          with open(manifest_path, 'w') as f:
+              json.dump(manifest, f, indent=2, ensure_ascii=False)
+
+          cli_manifest_path = 'cdn-template/cli-manifest.json'
+          with open(cli_manifest_path, 'r') as f:
+              cli_manifest = json.load(f)
+          cli_versions = cli_manifest.get('versions', [])
+          if not any(v['version'] == version for v in cli_versions):
+              cli_versions.insert(0, {
+                  "version": version,
+                  "releaseDate": __import__('datetime').date.today().isoformat(),
+                  "files": {
+                      "win32-x64":    f"oclaw-{version}-win32-x64.zip",
+                      "darwin-x64":   f"oclaw-{version}-darwin-x64.tar.gz",
+                      "darwin-arm64": f"oclaw-{version}-darwin-arm64.tar.gz",
+                      "linux-x64":    f"oclaw-{version}-linux-x64.tar.gz"
+                  },
+                  "checksums": cli_checksums
+              })
+              cli_manifest['versions'] = cli_versions
+          cli_manifest['latest'] = version
+          with open(cli_manifest_path, 'w') as f:
+              json.dump(cli_manifest, f, indent=2, ensure_ascii=False)
+          print(f"Manifests updated for version {version}")
+          EOF
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+
+      - name: Install coscmd
+        run: pip install coscmd
+
+      - name: Configure coscmd
+        run: |
+          coscmd config \
+            -a "${{ secrets.SECRETID }}" \
+            -s "${{ secrets.SECRETKEY }}" \
+            -b "${{ secrets.BUCKET }}" \
+            -r "${{ secrets.REGION }}"
+
+      - name: Upload packages to COS
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+
+          # Upload CLI packages (required – job fails if any are missing)
+          coscmd upload cdn-packages/oclaw-${VERSION}-win32-x64.zip    cli/${VERSION}/oclaw-${VERSION}-win32-x64.zip
+          coscmd upload cdn-packages/oclaw-${VERSION}-darwin-x64.tar.gz    cli/${VERSION}/oclaw-${VERSION}-darwin-x64.tar.gz
+          coscmd upload cdn-packages/oclaw-${VERSION}-darwin-arm64.tar.gz  cli/${VERSION}/oclaw-${VERSION}-darwin-arm64.tar.gz
+          coscmd upload cdn-packages/oclaw-${VERSION}-linux-x64.tar.gz     cli/${VERSION}/oclaw-${VERSION}-linux-x64.tar.gz
+
+          # Upload GUI packages (optional – skipped if the build artifact is absent)
+          [ -f cdn-packages/openclaw-${VERSION}-win32-x64.zip ]        && coscmd upload cdn-packages/openclaw-${VERSION}-win32-x64.zip        ${VERSION}/openclaw-${VERSION}-win32-x64.zip        || true
+          [ -f cdn-packages/openclaw-${VERSION}-darwin-x64.tar.gz ]    && coscmd upload cdn-packages/openclaw-${VERSION}-darwin-x64.tar.gz    ${VERSION}/openclaw-${VERSION}-darwin-x64.tar.gz    || true
+          [ -f cdn-packages/openclaw-${VERSION}-darwin-arm64.tar.gz ]  && coscmd upload cdn-packages/openclaw-${VERSION}-darwin-arm64.tar.gz  ${VERSION}/openclaw-${VERSION}-darwin-arm64.tar.gz  || true
+          [ -f cdn-packages/openclaw-${VERSION}-linux-x64.tar.gz ]     && coscmd upload cdn-packages/openclaw-${VERSION}-linux-x64.tar.gz     ${VERSION}/openclaw-${VERSION}-linux-x64.tar.gz     || true
+
+          # Upload install scripts
+          coscmd upload scripts/install.sh  install.sh
+          coscmd upload scripts/install.ps1 install.ps1
+
+          # Upload manifests (overwrite latest)
+          coscmd upload cdn-template/manifest.json     manifest.json
+          coscmd upload cdn-template/cli-manifest.json cli-manifest.json
+
+      - name: Refresh CDN cache
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          CDN_DOMAIN: https://oclaw.chatu.plus
+        run: |
+          pip install tccli==3.1.48.1
+          tccli configure set \
+            secretId  "${{ secrets.SECRETID }}" \
+            secretKey "${{ secrets.SECRETKEY }}" \
+            region    "ap-guangzhou"
+
+          # Build JSON array of URLs to purge.
+          # Always purge overwritten files (manifests + install scripts) and
+          # the versioned CLI packages uploaded in this release.
+          URLS=$(python3 - <<'PYEOF'
+          import json, os
+          base = os.environ['CDN_DOMAIN']
+          v    = os.environ['VERSION']
+          print(json.dumps([
+              base + '/manifest.json',
+              base + '/cli-manifest.json',
+              base + '/install.sh',
+              base + '/install.ps1',
+              base + '/cli/' + v + '/oclaw-' + v + '-win32-x64.zip',
+              base + '/cli/' + v + '/oclaw-' + v + '-darwin-x64.tar.gz',
+              base + '/cli/' + v + '/oclaw-' + v + '-darwin-arm64.tar.gz',
+              base + '/cli/' + v + '/oclaw-' + v + '-linux-x64.tar.gz',
+          ]))
+          PYEOF
+          )
+          echo "Purging CDN URLs: $URLS"
+          tccli cdn PurgeUrlsCache --Urls "$URLS"
+          echo "CDN cache purge submitted successfully"

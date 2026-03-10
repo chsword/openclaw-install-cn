@@ -12,13 +12,12 @@ const log = require('../lib/logger');
 /**
  * Run the config command.
  * @param {Object} options
- * @param {string} [options.cdnUrl]    - set CDN base URL
  * @param {string} [options.dir]       - set install directory
  * @param {boolean} [options.list]     - list current config
  * @param {boolean} [options.reset]    - reset to defaults
  */
 function runConfig(options = {}) {
-  const hasUpdate = options.cdnUrl || options.dir;
+  const hasUpdate = options.dir;
   const shouldReset = options.reset;
 
   if (shouldReset) {
@@ -35,7 +34,6 @@ function runConfig(options = {}) {
 
   if (hasUpdate) {
     const updates = {};
-    if (options.cdnUrl) updates.cdnBase = options.cdnUrl;
     if (options.dir) updates.installDir = options.dir;
     updateConfig(updates);
     log.success('Configuration updated.');

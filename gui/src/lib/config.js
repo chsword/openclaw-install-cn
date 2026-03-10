@@ -13,11 +13,11 @@ const { getDefaultInstallDir } = require('./platform');
 const CONFIG_DIR = path.join(os.homedir(), '.oclaw');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
-const DEFAULT_CDN_BASE = 'https://openclaw-cdn.example.com';
+const DEFAULT_CDN_BASE = 'https://oclaw.chatu.plus';
 
 /**
  * @typedef {Object} OclawConfig
- * @property {string} cdnBase   - CDN base URL (no trailing slash)
+ * @property {string} cdnBase   - CDN base URL (always the hardcoded constant; not user-configurable)
  * @property {string} installDir - OpenClaw installation directory
  * @property {string|null} installedVersion - Currently installed version
  */
@@ -33,6 +33,7 @@ function getDefaults() {
 
 /**
  * Load config from disk, merging with defaults.
+ * cdnBase is always the hardcoded constant and is never read from the config file.
  * @returns {OclawConfig}
  */
 function loadConfig() {
@@ -43,7 +44,9 @@ function loadConfig() {
   try {
     const raw = fs.readFileSync(CONFIG_FILE, 'utf-8');
     const stored = JSON.parse(raw);
-    return Object.assign({}, defaults, stored);
+    // cdnBase is not user-configurable; always use the hardcoded default.
+    const { cdnBase: _cdnBase, ...storedWithoutCdn } = stored;
+    return Object.assign({}, defaults, storedWithoutCdn);
   } catch {
     return defaults;
   }
@@ -51,13 +54,16 @@ function loadConfig() {
 
 /**
  * Save config to disk.
+ * cdnBase is always the hardcoded constant and is never written to the config file.
  * @param {OclawConfig} config
  */
 function saveConfig(config) {
   if (!fs.existsSync(CONFIG_DIR)) {
     fs.mkdirSync(CONFIG_DIR, { recursive: true });
   }
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf-8');
+  // Strip cdnBase — it's always the hardcoded constant, never persisted.
+  const { cdnBase: _cdnBase, ...configToSave } = config;
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(configToSave, null, 2), 'utf-8');
 }
 
 /**

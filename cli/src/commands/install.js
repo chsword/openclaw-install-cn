@@ -150,7 +150,6 @@ async function runInstall(options = {}) {
     } catch (err) {
       log.error(`Failed to fetch version info: ${err.message}`);
       log.dim(`CDN base: ${cdnBase}`);
-      log.dim('Run `oclaw config --cdn-url <url>` to set a different CDN.');
       process.exit(1);
     }
 
