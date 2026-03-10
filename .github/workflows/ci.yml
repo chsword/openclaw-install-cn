@@ -44,7 +44,15 @@ jobs:
           cache: 'npm'
           cache-dependency-path: cli/package-lock.json
 
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        id: cache-cli-node-modules
+        with:
+          path: cli/node_modules
+          key: ${{ runner.os }}-node${{ matrix.node }}-cli-node-modules-${{ hashFiles('cli/package-lock.json') }}
+
       - name: Install CLI dependencies
+        if: steps.cache-cli-node-modules.outputs.cache-hit != 'true'
         run: npm ci
         working-directory: cli
 
@@ -65,7 +73,14 @@ jobs:
           node-version: '20'
           cache: 'npm'
           cache-dependency-path: cli/package-lock.json
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        id: cache-lint-node-modules
+        with:
+          path: cli/node_modules
+          key: ${{ runner.os }}-node20-cli-node-modules-${{ hashFiles('cli/package-lock.json') }}
       - run: npm ci
+        if: steps.cache-lint-node-modules.outputs.cache-hit != 'true'
         working-directory: cli
       # eslint is only a devDep if added; skip gracefully if not installed
       - name: Lint (if eslint configured)
@@ -90,7 +105,14 @@ jobs:
           node-version: '18'
           cache: 'npm'
           cache-dependency-path: cli/package-lock.json
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        id: cache-build-node-modules
+        with:
+          path: cli/node_modules
+          key: ${{ runner.os }}-node18-cli-node-modules-${{ hashFiles('cli/package-lock.json') }}
       - run: npm ci
+        if: steps.cache-build-node-modules.outputs.cache-hit != 'true'
         working-directory: cli
       - name: Build Linux binary
         run: npm run build:linux

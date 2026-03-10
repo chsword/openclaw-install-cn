@@ -1,0 +1,28 @@
+version: 2
+updates:
+  # CLI npm dependencies
+  - package-ecosystem: "npm"
+    directory: "/cli"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "cli"
+
+  # GUI npm dependencies
+  - package-ecosystem: "npm"
+    directory: "/gui"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "gui"
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "ci/cd"

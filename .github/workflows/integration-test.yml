@@ -56,7 +56,15 @@ jobs:
           cache: 'npm'
           cache-dependency-path: cli/package-lock.json
 
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        id: cache-integration-node-modules
+        with:
+          path: cli/node_modules
+          key: ${{ runner.os }}-node${{ matrix.node }}-cli-node-modules-${{ hashFiles('cli/package-lock.json') }}
+
       - name: Install CLI dependencies
+        if: steps.cache-integration-node-modules.outputs.cache-hit != 'true'
         run: npm ci
         working-directory: cli
 

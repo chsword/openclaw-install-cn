@@ -24,7 +24,14 @@ jobs:
           node-version: '20'
           cache: 'npm'
           cache-dependency-path: cli/package-lock.json
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        id: cache-test-node-modules
+        with:
+          path: cli/node_modules
+          key: ${{ runner.os }}-node20-cli-node-modules-${{ hashFiles('cli/package-lock.json') }}
       - run: npm ci
+        if: steps.cache-test-node-modules.outputs.cache-hit != 'true'
         working-directory: cli
       - run: npm test
         working-directory: cli
@@ -44,7 +51,15 @@ jobs:
           cache: 'npm'
           cache-dependency-path: cli/package-lock.json
 
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        id: cache-build-cli-node-modules
+        with:
+          path: cli/node_modules
+          key: ${{ runner.os }}-node18-cli-node-modules-${{ hashFiles('cli/package-lock.json') }}
+
       - name: Install CLI dependencies
+        if: steps.cache-build-cli-node-modules.outputs.cache-hit != 'true'
         run: npm ci
         working-directory: cli
 
@@ -110,6 +125,13 @@ jobs:
           path: ~/AppData/Local/electron/Cache
           key: ${{ runner.os }}-electron-${{ hashFiles('gui/package.json') }}
 
+      - name: Cache GUI node_modules
+        uses: actions/cache@v4
+        id: cache-gui-win-node-modules
+        with:
+          path: gui/node_modules
+          key: ${{ runner.os }}-node20-gui-node-modules-${{ hashFiles('gui/package.json') }}
+
       - name: Set version from tag
         id: ver
         shell: bash
@@ -128,6 +150,7 @@ jobs:
         run: node scripts/gen-icons.js
 
       - name: Install GUI dependencies
+        if: steps.cache-gui-win-node-modules.outputs.cache-hit != 'true'
         run: npm install
         working-directory: gui
 
@@ -170,6 +193,13 @@ jobs:
           path: ~/Library/Caches/electron
           key: ${{ runner.os }}-electron-${{ hashFiles('gui/package.json') }}
 
+      - name: Cache GUI node_modules
+        uses: actions/cache@v4
+        id: cache-gui-mac-node-modules
+        with:
+          path: gui/node_modules
+          key: ${{ runner.os }}-node20-gui-node-modules-${{ hashFiles('gui/package.json') }}
+
       - name: Set version from tag
         id: ver
         run: |
@@ -186,6 +216,7 @@ jobs:
         run: node scripts/gen-icons.js
 
       - name: Install GUI dependencies
+        if: steps.cache-gui-mac-node-modules.outputs.cache-hit != 'true'
         run: npm install
         working-directory: gui
 
@@ -226,6 +257,13 @@ jobs:
           path: ~/.cache/electron
           key: ${{ runner.os }}-electron-${{ hashFiles('gui/package.json') }}
 
+      - name: Cache GUI node_modules
+        uses: actions/cache@v4
+        id: cache-gui-linux-node-modules
+        with:
+          path: gui/node_modules
+          key: ${{ runner.os }}-node20-gui-node-modules-${{ hashFiles('gui/package.json') }}
+
       - name: Set version from tag
         id: ver
         run: |
@@ -242,6 +280,7 @@ jobs:
         run: node scripts/gen-icons.js
 
       - name: Install GUI dependencies
+        if: steps.cache-gui-linux-node-modules.outputs.cache-hit != 'true'
         run: npm install
         working-directory: gui
 
