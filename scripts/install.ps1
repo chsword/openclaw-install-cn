@@ -256,12 +256,26 @@ function Install-FromCdn {
   }
 
   # Determine architecture
+  # Windows ARM64 can run x64 executables via emulation; fall back to x64 if
+  # an arm64-specific CLI package is unavailable.
   $arch = if ([System.Environment]::Is64BitOperatingSystem) { 'x64' } else { 'ia32' }
-  # ARM detection
   if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { $arch = 'arm64' }
 
   $pkgName = "oclaw-${cliVer}-win32-${arch}.zip"
   $pkgUrl  = "$CdnBase/cli/$cliVer/$pkgName"
+
+  # ARM64: fall back to x64 if the arm64 package is unavailable
+  if ($arch -eq 'arm64') {
+    try {
+      Invoke-WebRequest -Uri $pkgUrl -Method Head -UseBasicParsing -TimeoutSec 10 | Out-Null
+    } catch {
+      Write-Warn "arm64 CLI package not found on CDN, falling back to x64..."
+      $arch    = 'x64'
+      $pkgName = "oclaw-${cliVer}-win32-x64.zip"
+      $pkgUrl  = "$CdnBase/cli/$cliVer/$pkgName"
+    }
+  }
+
   $tmpDir  = Join-Path $env:TEMP "oclaw-bootstrap"
   $pkgPath = Join-Path $tmpDir $pkgName
 
@@ -277,7 +291,7 @@ function Install-FromCdn {
   }
 
   Write-Info "Extracting..."
-  Expand-Archive -Force -Path $pkgPath -DestinationPath $tmpDir
+  Expand-Archive -Force -LiteralPath "$pkgPath" -DestinationPath "$tmpDir"
 
   # Find oclaw.exe
   $exePath = Get-ChildItem -Path $tmpDir -Filter 'oclaw.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -292,11 +306,11 @@ function Install-FromCdn {
   $env:Path = "$OclawBinDir;$env:Path"
 
   # Set CDN config
-  & "$OclawBinDir\oclaw.exe" config --cdn-url $CdnBase 2>$null
+  & "$OclawBinDir\oclaw.exe" config --cdn-url "$CdnBase" 2>$null
 
   # Install OpenClaw
   Write-Info "Installing OpenClaw from CDN ($CdnBase)..."
-  & "$OclawBinDir\oclaw.exe" install --dir $InstallDir
+  & "$OclawBinDir\oclaw.exe" install --dir "$InstallDir"
 
   Write-Host ""
   Write-Success "OpenClaw installed successfully!"
@@ -348,6 +362,8 @@ function Install-FromLocalBundle {
   }
 
   # Determine architecture
+  # Windows ARM64 can run x64 executables via emulation; fall back to x64 if
+  # an arm64-specific CLI package is not present in the bundle.
   $arch = if ([System.Environment]::Is64BitOperatingSystem) { 'x64' } else { 'ia32' }
   if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { $arch = 'arm64' }
 
@@ -360,9 +376,15 @@ function Install-FromLocalBundle {
   $cliVer = $cliManifest.latest
   Write-Info "CLI version from local bundle: $cliVer"
 
-  # Locate CLI archive in bundle
+  # Locate CLI archive in bundle; fall back from arm64 to x64 if needed
   $cliPkgName = "oclaw-${cliVer}-win32-${arch}.zip"
   $cliPkgPath = Join-Path $bundle "cli\$cliVer\$cliPkgName"
+  if ($arch -eq 'arm64' -and -not (Test-Path $cliPkgPath)) {
+    Write-Warn "arm64 CLI package not found in bundle, falling back to x64..."
+    $arch       = 'x64'
+    $cliPkgName = "oclaw-${cliVer}-win32-x64.zip"
+    $cliPkgPath = Join-Path $bundle "cli\$cliVer\$cliPkgName"
+  }
   if (-not (Test-Path $cliPkgPath)) {
     Write-Fail "CLI package not found in bundle: $cliPkgPath"
   }
@@ -373,7 +395,7 @@ function Install-FromLocalBundle {
   }
 
   Write-Info "Extracting oclaw CLI from local bundle..."
-  Expand-Archive -Force -Path $cliPkgPath -DestinationPath $tmpDir
+  Expand-Archive -Force -LiteralPath "$cliPkgPath" -DestinationPath "$tmpDir"
 
   $exePath = Get-ChildItem -Path $tmpDir -Filter 'oclaw.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
   if (-not $exePath) {
@@ -388,7 +410,7 @@ function Install-FromLocalBundle {
 
   # Install OpenClaw from local bundle
   Write-Info "Installing OpenClaw from local bundle..."
-  & "$OclawBinDir\oclaw.exe" install --dir $InstallDir --local-package $bundle
+  & "$OclawBinDir\oclaw.exe" install --dir "$InstallDir" --local-package "$bundle"
 
   Write-Host ""
   Write-Success "OpenClaw installed successfully!"

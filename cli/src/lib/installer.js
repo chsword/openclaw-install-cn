@@ -26,13 +26,18 @@ function extractZip(archivePath, destDir) {
 
   const platform = getPlatform();
   if (platform === 'win32') {
+    // Use single-quoted PowerShell strings so paths with spaces, dollar signs,
+    // or backticks are treated as literals.  The only character that requires
+    // escaping inside a PS single-quoted string is a single-quote → ''.
+    const psArchive = archivePath.replace(/'/g, "''");
+    const psDest    = destDir.replace(/'/g, "''");
     const result = spawnSync(
       'powershell',
       [
         '-NoProfile',
         '-NonInteractive',
         '-Command',
-        `Expand-Archive -Force -Path "${archivePath}" -DestinationPath "${destDir}"`,
+        `Expand-Archive -Force -LiteralPath '${psArchive}' -DestinationPath '${psDest}'`,
       ],
       { stdio: 'pipe', encoding: 'utf-8' }
     );
