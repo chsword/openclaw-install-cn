@@ -560,6 +560,32 @@ jobs:
           | \`manifest.json\` | OpenClaw 包版本清单模板 |
           | \`cli-manifest.json\` | oclaw CLI 版本清单模板 |
 
+          ### 📌 离线安装说明
+
+          本次发布的离线安装包支持安装 **OpenClaw ${VERSION}**。
+
+          使用离线（air-gap）模式时，请将本次 GitHub Release 附件中的 CDN 包按以下目录结构放置，并设置环境变量后运行安装脚本：
+
+          \`\`\`
+          openclaw-bundle/
+            cli-manifest.json
+            cli/${VERSION}/oclaw-${VERSION}-{os}-{arch}.{zip|tar.gz}
+            manifest.json
+            ${VERSION}/openclaw-${VERSION}-{os}-{arch}.{zip|tar.gz}
+          \`\`\`
+
+          **macOS / Linux：**
+          \`\`\`bash
+          export OCLAW_LOCAL_BUNDLE=/path/to/openclaw-bundle
+          bash install.sh
+          \`\`\`
+
+          **Windows：**
+          \`\`\`powershell
+          \$env:OCLAW_LOCAL_BUNDLE = "C:\path\to\openclaw-bundle"
+          .\install.ps1
+          \`\`\`
+
           ### 🔒 校验和
 
           见附件 \`checksums.sha256\`

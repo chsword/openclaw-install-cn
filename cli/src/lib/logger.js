@@ -13,6 +13,17 @@ const CYAN = '\x1b[36m';
 const BOLD = '\x1b[1m';
 const DIM = '\x1b[2m';
 
+/** Whether verbose/debug mode is enabled. */
+let _verbose = false;
+
+/**
+ * Enable or disable verbose/debug output.
+ * @param {boolean} flag
+ */
+function setVerbose(flag) {
+  _verbose = Boolean(flag);
+}
+
 function info(msg) {
   console.log(`${CYAN}ℹ${RESET}  ${msg}`);
 }
@@ -38,6 +49,16 @@ function dim(msg) {
 }
 
 /**
+ * Print a [DEBUG] message to stderr. Only emits output when verbose mode is
+ * enabled via setVerbose(true).
+ * @param {string} msg
+ */
+function debug(msg) {
+  if (!_verbose) return;
+  process.stderr.write(`${DIM}[DEBUG] ${msg}${RESET}\n`);
+}
+
+/**
  * Print a progress bar in-place.
  * @param {number} received - bytes received
  * @param {number} total - total bytes (0 if unknown)
@@ -59,4 +80,4 @@ function progressEnd() {
   process.stdout.write('\n');
 }
 
-module.exports = { info, success, warn, error, step, dim, progress, progressEnd };
+module.exports = { info, success, warn, error, step, dim, debug, setVerbose, progress, progressEnd };
