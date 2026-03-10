@@ -1,6 +1,6 @@
 {
   "name": "openclaw-install-cn",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "description": "OpenClaw installer and updater for China mainland / restricted networks - installs from CDN without npm/GitHub access",
   "main": "src/index.js",
   "bin": {
