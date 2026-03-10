@@ -4,6 +4,7 @@ name: Integration Tests
 #   - spin up a local mock CDN server inside the test process
 #   - exercise `oclaw install`, `oclaw upgrade`, `oclaw status`, `oclaw config`
 #     by spawning real subprocesses on each runner OS
+#   - test bootstrap script Node.js auto-install on a bare Linux container
 #
 # Runs on the same triggers as the main CI workflow.
 on:
@@ -27,6 +28,7 @@ on:
       - 'cdn-template/**'
 
 jobs:
+  # ── CLI integration tests (mock CDN, real subprocess) ──────────────────────
   integration:
     name: Integration tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -74,3 +76,156 @@ jobs:
             ${{ runner.temp }}/oclaw-e2e-*
           retention-days: 3
           if-no-files-found: ignore
+
+  # ── Bootstrap script: Linux Node.js auto-install ───────────────────────────
+  # Runs inside a minimal Ubuntu 22.04 Docker container that has NO Node.js
+  # pre-installed.  This exercises the full "fresh machine" code path in
+  # scripts/install.sh, including NODE_MIRROR support.
+  test-bootstrap-linux:
+    name: Bootstrap – Linux Node.js auto-install
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    container:
+      image: ubuntu:22.04
+
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      # Point at the official mirror (CI has internet access).
+      # The NODE_MIRROR env var is exactly what China users would override.
+      NODE_MIRROR: https://nodejs.org/dist
+      # Use a non-routable hostname so the script stops after Node.js is
+      # installed (when it tries to reach the CDN).  We validate below that
+      # the failure is CDN-related, not Node.js-install-related.
+      OCLAW_CDN: http://oclaw-unreachable-cdn.invalid
+
+    steps:
+      - name: Install prerequisites (git + curl for checkout and Node download)
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq git curl ca-certificates
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Confirm Node.js is absent in the container
+        run: |
+          if command -v node 2>/dev/null; then
+            echo "::warning::Node.js already present at $(which node) – auto-install path may be bypassed"
+          else
+            echo "✔ No Node.js found – auto-install will be exercised"
+          fi
+
+      # Run install.sh; it will:
+      #  1. detect no Node.js → call install_node_lts()
+      #  2. download and extract Node.js LTS binary from nodejs.org/dist
+      #  3. try to reach the fake CDN → fail with a CDN error (expected)
+      # We capture stdout+stderr and the exit code to assert on both.
+      - name: Run bootstrap script (Node.js auto-install expected; CDN failure expected)
+        id: bootstrap
+        run: |
+          set +e
+          OUTPUT=$(bash scripts/install.sh 2>&1)
+          EXIT_CODE=$?
+          set -e
+          echo "$OUTPUT"
+          echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+          # The script MUST exit non-zero (CDN is unreachable)
+          if [ "$EXIT_CODE" -eq 0 ]; then
+            echo "::error::Script unexpectedly succeeded – the fake CDN should have caused a failure"
+            exit 1
+          fi
+          # The failure MUST be CDN-related, not a Node.js install failure
+          if echo "$OUTPUT" | grep -qiE 'Node.js installation failed|Unsupported OS|Could not locate extracted'; then
+            echo "::error::Script failed during Node.js installation, not at the CDN step"
+            exit 1
+          fi
+          echo "✔ Script failed at the expected CDN step (exit code: $EXIT_CODE)"
+
+      - name: Verify Node.js was auto-installed by the bootstrap script
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          if ! command -v node 2>/dev/null; then
+            echo "::error::Node.js was NOT installed by the bootstrap script"
+            exit 1
+          fi
+          NODE_VER=$(node -e "process.stdout.write(process.versions.node)")
+          NODE_MAJOR=$(echo "$NODE_VER" | cut -d. -f1)
+          echo "Node.js version: $NODE_VER"
+          if [ "$NODE_MAJOR" -lt 18 ]; then
+            echo "::error::Node.js $NODE_VER is too old (need >= 18)"
+            exit 1
+          fi
+          echo "✔ Node.js $NODE_VER auto-installed and meets the >= 18 requirement"
+
+      - name: Verify NODE_MIRROR is respected (URL structure check)
+        run: |
+          # Confirm the script references NODE_MIRROR (not a hard-coded URL)
+          grep -q 'NODE_MIRROR' scripts/install.sh
+          echo "✔ NODE_MIRROR variable is present in install.sh"
+          # Confirm the China mirror examples are documented
+          grep -q 'npmmirror.com' scripts/install.sh
+          echo "✔ Taobao/Alibaba npmmirror.com is documented as a China mirror"
+          grep -q 'huaweicloud.com' scripts/install.sh
+          echo "✔ Huawei Cloud mirror is documented as a China mirror"
+
+  # ── Bootstrap script: Windows parameter validation ──────────────────────────
+  # Does NOT attempt a real Node.js install (that would require admin + time).
+  # Instead validates that:
+  #   - the -NodeMirror parameter is accepted without error
+  #   - the China mirror URL examples are present in the script
+  #   - the -NodeLtsVersion parameter is wired through
+  test-bootstrap-windows:
+    name: Bootstrap – Windows param & mirror validation
+    runs-on: windows-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate install.ps1 parameter signatures
+        shell: pwsh
+        run: |
+          # Parse the script AST – if param() block is invalid this will throw
+          $tokens = $null; $errors = $null
+          $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path 'scripts\install.ps1').Path, [ref]$tokens, [ref]$errors)
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            exit 1
+          }
+          # Check all required parameters are present
+          $params = $ast.ParamBlock.Parameters.Name.VariablePath.UserPath
+          foreach ($p in @('CdnBase','CliVersion','InstallDir','NodeMirror','NodeLtsVersion')) {
+            if ($params -notcontains $p) {
+              Write-Error "Parameter -$p not found in install.ps1"
+              exit 1
+            }
+            Write-Host "  ✔ -$p parameter present"
+          }
+
+      - name: Validate China mirror documentation in install.ps1
+        shell: pwsh
+        run: |
+          $content = Get-Content 'scripts\install.ps1' -Raw
+          foreach ($mirror in @('npmmirror.com', 'huaweicloud.com')) {
+            if ($content -notmatch [regex]::Escape($mirror)) {
+              Write-Error "$mirror not documented in install.ps1"
+              exit 1
+            }
+            Write-Host "  ✔ $mirror documented"
+          }
+
+      - name: Verify Install-NodeLts and Resolve-NodeLtsVersion functions exist
+        shell: pwsh
+        run: |
+          $content = Get-Content 'scripts\install.ps1' -Raw
+          foreach ($fn in @('Install-NodeLts', 'Resolve-NodeLtsVersion', 'Resolve-NodeMajorToFull')) {
+            if ($content -notmatch "function $fn") {
+              Write-Error "Function $fn not found in install.ps1"
+              exit 1
+            }
+            Write-Host "  ✔ function $fn found"
+          }
