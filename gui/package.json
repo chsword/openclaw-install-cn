@@ -58,7 +58,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "installerFileName": "${name}-setup-${version}-${arch}.exe"
+      "artifactName": "${name}-setup-${version}-${arch}.${ext}"
     },
     "directories": {
       "output": "dist",
