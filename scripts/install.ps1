@@ -113,6 +113,21 @@ function Get-RemoteFile {
   $wc.DownloadFile($Url, $Dest)
 }
 
+# ── SHA-256 checksum verification ────────────────────────────────────────────
+function Confirm-Sha256 {
+  param([string]$FilePath, [string]$Expected)
+  # Strip optional "sha256:" prefix
+  $expectedHex = $Expected -replace '^sha256:', ''
+  $actualHex   = (Get-FileHash -Path $FilePath -Algorithm SHA256).Hash.ToLower()
+  if ($actualHex -ne $expectedHex.ToLower()) {
+    Write-Fail ("Checksum mismatch for $(Split-Path $FilePath -Leaf):`n" +
+      "  Expected: $expectedHex`n" +
+      "  Got:      $actualHex`n" +
+      'The downloaded file may be corrupted or tampered with. Please re-run the installer.')
+  }
+  Write-Verbose-Log "Checksum verified: $actualHex"
+}
+
 # ── Resolve latest Node.js LTS version from mirror index ──────────────────────
 function Resolve-NodeLtsVersion {
   $indexUrl = ($NodeMirror.TrimEnd('/') + '/index.json')
@@ -297,16 +312,24 @@ function Install-FromCdn {
     New-Item -ItemType Directory -Path $OclawBinDir -Force | Out-Null
   }
 
-  # Resolve CLI version
+  # Resolve CLI version and fetch checksum from the manifest in one request.
   $cliVer = $CliVersion
+  $cliManifest = $null
   if ($cliVer -eq 'latest') {
     Write-Info "Fetching latest CLI version..."
     try {
-      $manifest = Get-RemoteString "$CdnBase/cli-manifest.json" | ConvertFrom-Json
-      $cliVer   = $manifest.latest
+      $cliManifest = Get-RemoteString "$CdnBase/cli-manifest.json" | ConvertFrom-Json
+      $cliVer      = $cliManifest.latest
       Write-Info "Latest CLI version: $cliVer"
     } catch {
       Write-Fail "Could not fetch CLI manifest: $_"
+    }
+  } else {
+    # Still fetch the manifest so we can verify the checksum.
+    try {
+      $cliManifest = Get-RemoteString "$CdnBase/cli-manifest.json" | ConvertFrom-Json
+    } catch {
+      Write-Warn "Could not fetch CLI manifest for checksum verification: $_"
     }
   }
 
@@ -334,6 +357,16 @@ function Install-FromCdn {
     }
   }
 
+  # Extract expected checksum for the resolved platform key.
+  $platformKey      = "win32-${arch}"
+  $expectedChecksum = $null
+  if ($cliManifest) {
+    $verEntry = $cliManifest.versions | Where-Object { $_.version -eq $cliVer } | Select-Object -First 1
+    if ($verEntry -and $verEntry.checksums) {
+      $expectedChecksum = $verEntry.checksums.$platformKey
+    }
+  }
+
   $tmpDir  = Join-Path $env:TEMP "oclaw-bootstrap"
   $pkgPath = Join-Path $tmpDir $pkgName
   Write-Verbose-Log "Temporary directory: $tmpDir"
@@ -347,6 +380,15 @@ function Install-FromCdn {
     Get-RemoteFile $pkgUrl $pkgPath
   } catch {
     Write-Fail "Download failed: $_"
+  }
+
+  # Verify SHA-256 checksum of the downloaded package.
+  if ($expectedChecksum) {
+    Write-Info "Verifying checksum..."
+    Confirm-Sha256 -FilePath $pkgPath -Expected $expectedChecksum
+    Write-Success "Checksum verified."
+  } else {
+    Write-Warn "No checksum available for ${platformKey} in CLI manifest; skipping verification."
   }
 
   Write-Info "Extracting..."
