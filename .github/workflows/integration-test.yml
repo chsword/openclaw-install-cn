@@ -1,0 +1,76 @@
+name: Integration Tests
+
+# Real-machine end-to-end tests:
+#   - spin up a local mock CDN server inside the test process
+#   - exercise `oclaw install`, `oclaw upgrade`, `oclaw status`, `oclaw config`
+#     by spawning real subprocesses on each runner OS
+#
+# Runs on the same triggers as the main CI workflow.
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - 'copilot/**'
+      - 'feature/**'
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'cdn-template/**'
+  pull_request:
+    branches:
+      - main
+      - develop
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'cdn-template/**'
+
+jobs:
+  integration:
+    name: Integration tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+        node:
+          - '20'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ matrix.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: 'npm'
+          cache-dependency-path: cli/package-lock.json
+
+      - name: Install CLI dependencies
+        run: npm ci
+        working-directory: cli
+
+      - name: Run integration tests
+        run: npm run test:integration
+        working-directory: cli
+        # Give extra time: each test spawns real subprocesses that perform
+        # HTTP downloads, tar/zip extraction, and file I/O.
+        timeout-minutes: 10
+
+      - name: Upload test artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-failure-${{ matrix.os }}-node${{ matrix.node }}
+          path: |
+            ${{ runner.temp }}/oclaw-e2e-*
+          retention-days: 3
+          if-no-files-found: ignore

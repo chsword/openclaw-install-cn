@@ -9,6 +9,8 @@
   "scripts": {
     "start": "node bin/oclaw.js",
     "test": "node --test src/__tests__/*.test.js",
+    "test:integration": "node --test src/__tests__/integration/integration.test.js",
+    "test:all": "npm test && npm run test:integration",
     "lint": "eslint src/ bin/",
     "build": "npm run build:bin",
     "build:bin": "npm run build:win && npm run build:mac-x64 && npm run build:mac-arm64 && npm run build:linux",
