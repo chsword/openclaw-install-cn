@@ -31,6 +31,7 @@
 const https = require('https');
 const http = require('http');
 const { URL } = require('url');
+const { debug } = require('./logger');
 
 /**
  * Fetch JSON from a URL.
@@ -41,15 +42,21 @@ function fetchJson(url) {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
     const transport = parsed.protocol === 'https:' ? https : http;
+    const startTime = Date.now();
+    debug(`GET ${url}`);
 
     const req = transport.get(url, { timeout: 15000 }, (res) => {
+      const elapsed = Date.now() - startTime;
       if (res.statusCode === 301 || res.statusCode === 302) {
+        debug(`Redirect ${res.statusCode}: ${url} → ${res.headers.location}`);
         // Follow one redirect
         return fetchJson(res.headers.location).then(resolve, reject);
       }
       if (res.statusCode !== 200) {
+        debug(`HTTP ${res.statusCode} ${url} (${elapsed}ms)`);
         return reject(new Error(`HTTP ${res.statusCode} fetching ${url}`));
       }
+      debug(`HTTP ${res.statusCode} ${url} (${elapsed}ms)`);
       const chunks = [];
       res.on('data', (chunk) => chunks.push(chunk));
       res.on('end', () => {
@@ -75,6 +82,7 @@ function fetchJson(url) {
  */
 async function fetchManifest(cdnBase) {
   const url = `${cdnBase.replace(/\/$/, '')}/manifest.json`;
+  debug(`Resolving version info from: ${url}`);
   try {
     return await fetchJson(url);
   } catch (err) {
@@ -104,6 +112,7 @@ async function getLatestVersion(cdnBase) {
 async function getVersionInfo(cdnBase, version) {
   const manifest = await fetchManifest(cdnBase);
   const target = version || manifest.latest;
+  debug(`Selected version: ${target}`);
   const entry = (manifest.versions || []).find((v) => v.version === target);
   if (!entry) {
     throw new Error(`Version ${target} not found in manifest`);

@@ -145,6 +145,7 @@ async function runInstall(options = {}) {
     const cdnBase = config.cdnBase;
 
     log.step('Checking version information...');
+    log.debug(`CDN base: ${cdnBase}`);
     try {
       versionInfo = await getVersionInfo(cdnBase, options.version);
     } catch (err) {
@@ -167,6 +168,9 @@ async function runInstall(options = {}) {
     if (!fs.existsSync(tmpDir)) {
       fs.mkdirSync(tmpDir, { recursive: true });
     }
+
+    log.debug(`Selected platform: ${platformKey}, file: ${filename}`);
+    log.debug(`Download URL: ${downloadUrl}`);
 
     log.step(`Downloading OpenClaw ${version} for ${platform}-${arch}...`);
     log.dim(`From: ${downloadUrl}`);

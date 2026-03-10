@@ -13,7 +13,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { URL } = require('url');
-const { progress, progressEnd } = require('./logger');
+const { progress, progressEnd, debug } = require('./logger');
 
 /** Default connection timeout in milliseconds. */
 const DEFAULT_CONNECT_TIMEOUT_MS = 30000;
@@ -95,12 +95,17 @@ function downloadFile(url, dest, opts = {}) {
           reqHeaders['Range'] = `bytes=${startOffset}-`;
         }
 
+        debug(`GET ${requestUrl}${startOffset > 0 ? ` (resume from byte ${startOffset})` : ''}`);
+        const reqStartTime = Date.now();
+
         const req = transport.get(requestUrl, { headers: reqHeaders }, (res) => {
+          const elapsed = Date.now() - reqStartTime;
           // ── Redirects ──────────────────────────────────────────────────────
           if (res.statusCode === 301 || res.statusCode === 302 ||
               res.statusCode === 307 || res.statusCode === 308) {
             const location = res.headers.location;
             if (!location) return reject(new Error('Redirect with no Location header'));
+            debug(`Redirect ${res.statusCode}: ${requestUrl} → ${location}`);
             res.resume();
             return doRequest(location, startOffset, redirects + 1);
           }
@@ -109,6 +114,7 @@ function downloadFile(url, dest, opts = {}) {
           // Our partial file is larger than the remote content (e.g. file was
           // replaced on the server).  Delete local partial and start fresh.
           if (res.statusCode === 416) {
+            debug(`HTTP 416 Range Not Satisfiable — restarting download from byte 0`);
             res.resume();
             try { fs.unlinkSync(dest); } catch (err) { if (err.code !== 'ENOENT') return reject(err); }
             return doRequest(url, 0, 0);
@@ -118,15 +124,19 @@ function downloadFile(url, dest, opts = {}) {
           // Some servers don't support partial content.  Delete local partial
           // and start a full download.
           if (startOffset > 0 && res.statusCode === 200) {
+            debug(`Server returned 200 instead of 206 — Range not supported, restarting full download`);
             res.resume();
             try { fs.unlinkSync(dest); } catch (err) { if (err.code !== 'ENOENT') return reject(err); }
             return doRequest(url, 0, 0);
           }
 
           if (res.statusCode !== 200 && res.statusCode !== 206) {
+            debug(`HTTP ${res.statusCode} ${requestUrl} (${elapsed}ms)`);
             res.resume();
             return reject(new Error(`HTTP ${res.statusCode} downloading ${requestUrl}`));
           }
+
+          debug(`HTTP ${res.statusCode} ${requestUrl} (${elapsed}ms)`);
 
           const contentLength = parseInt(res.headers['content-length'] || '0', 10);
           // For 206 Partial Content, total size = already-downloaded + remaining.
@@ -198,7 +208,9 @@ function downloadFile(url, dest, opts = {}) {
         lastErr = err;
         if (attempt < maxRetries) {
           // Exponential back-off: 1 s, 2 s, 4 s, …
-          await sleep(retryDelay * (2 ** attempt));
+          const delay = retryDelay * (2 ** attempt);
+          debug(`Retry ${attempt + 1}/${maxRetries} after ${delay}ms: ${err.message}`);
+          await sleep(delay);
         }
       }
     }
@@ -247,10 +259,14 @@ async function verifyChecksum(filePath, expected) {
   const normalised = expected.replace(/^sha256:/i, '').toLowerCase();
   if (!/^[0-9a-f]{64}$/.test(normalised)) {
     // Not a valid SHA-256 hex digest — skip verification (placeholder value).
+    debug(`Checksum verification: SKIPPED (not a valid SHA-256 hex digest)`);
     return;
   }
+  debug(`Computing SHA-256: ${path.basename(filePath)}`);
   const actual = await hashFile(filePath);
+  debug(`SHA-256: ${actual}`);
   if (actual !== normalised) {
+    debug(`Checksum verification: FAILED`);
     throw new Error(
       `Checksum mismatch for ${path.basename(filePath)}:\n` +
         `  Expected: ${normalised}\n` +
@@ -258,6 +274,7 @@ async function verifyChecksum(filePath, expected) {
         'The file may be corrupted or tampered with. Please try downloading again.',
     );
   }
+  debug(`Checksum verification: PASSED`);
 }
 
 module.exports = { downloadFile, verifyChecksum };
