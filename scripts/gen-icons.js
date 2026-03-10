@@ -5,8 +5,9 @@
  * gen-icons.js — Generate placeholder icons for GUI builds in CI.
  *
  * Produces:
- *   gui/assets/icon.png  (256×256 RGBA PNG, solid #0066CC)
- *   gui/assets/icon.ico  (256×256 ICO wrapping the PNG)
+ *   gui/assets/icon.png  (512×512 RGBA PNG, solid #0066CC)
+ *   gui/assets/icon.ico  (256×256 ICO wrapping a 256×256 PNG)
+ *   gui/assets/icon.icns (macOS ICNS with 256×256 and 512×512 PNG entries)
  *
  * No external dependencies — uses only built-in Node.js modules.
  *
@@ -119,16 +120,61 @@ function buildIco(pngData) {
   return buf;
 }
 
+// ── ICNS (macOS icon format, wraps PNG data in icns container) ───────────────
+/**
+ * Wrap one or more PNG buffers inside a macOS ICNS file.
+ * Each entry uses a PNG-capable icon type:
+ *   ic08 → 256×256 PNG
+ *   ic09 → 512×512 PNG
+ *
+ * @param {{ type: string, png: Buffer }[]} entries
+ * @returns {Buffer}
+ */
+function buildIcns(entries) {
+  const entryBuffers = entries.map(({ type, png }, index) => {
+    if (typeof type !== 'string' || type.length !== 4) {
+      throw new Error(
+        `ICNS entry "type" must be a 4-character ASCII string, got ${JSON.stringify(type)} at index ${index}`
+      );
+    }
+    const typeB = Buffer.from(type, 'ascii'); // 4 bytes
+
+    // Pad PNG payload to a 4-byte boundary (ICNS elements are commonly 4-byte aligned)
+    const padding = (4 - (png.length % 4)) % 4;
+    const paddedPng = padding === 0 ? png : Buffer.concat([png, Buffer.alloc(padding)]);
+
+    const sizeB = Buffer.alloc(4);
+    // size field: 4-byte type + 4-byte size + PNG data (including any padding)
+    sizeB.writeUInt32BE(8 + paddedPng.length);
+
+    return Buffer.concat([typeB, sizeB, paddedPng]);
+  });
+  const body      = Buffer.concat(entryBuffers);
+  const totalSize = 8 + body.length;          // ICNS header (8) + entries
+  const header    = Buffer.alloc(8);
+  Buffer.from('icns', 'ascii').copy(header, 0);
+  header.writeUInt32BE(totalSize, 4);
+  return Buffer.concat([header, body]);
+}
+
 // ── Generate ──────────────────────────────────────────────────────────────────
-const png = buildPng(256, 0, 102, 204); // #0066CC — OpenClaw blue
-const ico = buildIco(png);
+const png256 = buildPng(256, 0, 102, 204); // #0066CC — OpenClaw blue
+const png512 = buildPng(512, 0, 102, 204);
+const ico    = buildIco(png256);
+const icns   = buildIcns([
+  { type: 'ic08', png: png256 }, // 256×256
+  { type: 'ic09', png: png512 }, // 512×512
+]);
 
-const pngPath = path.join(ASSETS_DIR, 'icon.png');
-const icoPath = path.join(ASSETS_DIR, 'icon.ico');
+const pngPath  = path.join(ASSETS_DIR, 'icon.png');
+const icoPath  = path.join(ASSETS_DIR, 'icon.ico');
+const icnsPath = path.join(ASSETS_DIR, 'icon.icns');
 
-fs.writeFileSync(pngPath, png);
-fs.writeFileSync(icoPath, ico);
+fs.writeFileSync(pngPath,  png512); // Use 512×512 as the base PNG for best quality
+fs.writeFileSync(icoPath,  ico);
+fs.writeFileSync(icnsPath, icns);
 
 console.log(`✔  Generated ${pngPath}`);
 console.log(`✔  Generated ${icoPath}`);
-console.log('   Size: PNG=%d B, ICO=%d B', png.length, ico.length);
+console.log(`✔  Generated ${icnsPath}`);
+console.log('   Size: PNG=%d B, ICO=%d B, ICNS=%d B', png512.length, ico.length, icns.length);
