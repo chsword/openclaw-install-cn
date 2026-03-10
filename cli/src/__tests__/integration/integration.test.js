@@ -351,12 +351,14 @@ describe('integration: install and upgrade', () => {
   });
 
   test('oclaw config + install flow without pre-seeded config', { timeout: 30000 }, async () => {
-    // Only set the CDN URL through the CLI — no direct file manipulation
-    const r1 = await runCli(['config', '--cdn-url', serverUrl, '--dir', installDir], tmpHome);
+    // The CDN URL is hardcoded in the project; seed only it so the mock server is used.
+    // Use the CLI to set the install directory (this is what we are testing here).
+    seedConfig(tmpHome, { cdnBase: serverUrl });
+    const r1 = await runCli(['config', '--dir', installDir], tmpHome);
     assert.strictEqual(r1.exitCode, 0);
 
     const r2 = await runCli(['install'], tmpHome);
-    assert.strictEqual(r2.exitCode, 0, `install via config-set CDN failed\n${r2.output}`);
+    assert.strictEqual(r2.exitCode, 0, `install via config-set dir failed\n${r2.output}`);
     assert.match(r2.output, /installed successfully/i);
 
     const marker = fs.readFileSync(path.join(installDir, '.oclaw-version'), 'utf-8').trim();
