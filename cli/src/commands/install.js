@@ -20,7 +20,6 @@ const {
   writeVersionMarker,
   readVersionMarker,
   isInstalled,
-  verifyChecksum,
 } = require('../lib/installer');
 const { getPlatform, getArch, getPackageFilename } = require('../lib/platform');
 const log = require('../lib/logger');
@@ -151,7 +150,6 @@ async function runInstall(options = {}) {
     } catch (err) {
       log.error(`Failed to fetch version info: ${err.message}`);
       log.dim(`CDN base: ${cdnBase}`);
-      log.dim('Run `oclaw config --cdn-url <url>` to set a different CDN.');
       process.exit(1);
     }
 
@@ -178,22 +176,6 @@ async function runInstall(options = {}) {
     } catch (err) {
       log.error(`Download failed: ${err.message}`);
       process.exit(1);
-    }
-
-    // Verify checksum if the manifest provides one for this platform
-    const expectedChecksum =
-      versionInfo.checksums && versionInfo.checksums[platformKey];
-    if (expectedChecksum) {
-      log.step('Verifying checksum...');
-      try {
-        verifyChecksum(archivePath, expectedChecksum);
-        log.success('Checksum verified.');
-      } catch (err) {
-        log.error(err.message);
-        process.exit(1);
-      }
-    } else {
-      log.warn('No checksum available for this platform in the manifest; skipping verification.');
     }
 
     log.success('Download complete.');

@@ -35,16 +35,25 @@ describe('config', () => {
 
   test('saveConfig and loadConfig round-trip', () => {
     const cfg = loadConfig();
-    cfg.cdnBase = 'https://my-cdn.example.com';
+    cfg.installDir = path.join(tmpDir, 'my-install-dir');
     saveConfig(cfg);
     const loaded = loadConfig();
-    assert.equal(loaded.cdnBase, 'https://my-cdn.example.com');
+    assert.equal(loaded.installDir, path.join(tmpDir, 'my-install-dir'));
+    // cdnBase is always the hardcoded constant, never loaded from file
+    assert.equal(loaded.cdnBase, DEFAULT_CDN_BASE);
+  });
+
+  test('saveConfig does not persist cdnBase to disk', () => {
+    const cfg = loadConfig();
+    saveConfig(cfg);
+    const raw = JSON.parse(fs.readFileSync(path.join(tmpDir, '.oclaw', 'config.json'), 'utf-8'));
+    assert.ok(!Object.prototype.hasOwnProperty.call(raw, 'cdnBase'), 'cdnBase must not be saved to disk');
   });
 
   test('updateConfig merges partial updates', () => {
     const updated = updateConfig({ installedVersion: '1.0.0' });
     assert.equal(updated.installedVersion, '1.0.0');
-    // Previous values preserved
-    assert.equal(updated.cdnBase, 'https://my-cdn.example.com');
+    // cdnBase is always the hardcoded constant regardless of stored config
+    assert.equal(updated.cdnBase, DEFAULT_CDN_BASE);
   });
 });
