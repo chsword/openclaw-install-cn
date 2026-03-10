@@ -57,6 +57,7 @@ program
   .command('config')
   .description('View or update oclaw configuration')
   .option('--dir <path>', 'set the installation directory')
+  .option('--cdn-url <url>', 'set the CDN base URL')
   .option('--reset', 'reset configuration to defaults', false)
   .option('--list', 'list current configuration (default action)', false)
   .action((opts) => {
