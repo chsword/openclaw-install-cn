@@ -314,4 +314,4 @@ class MockCdnServer {
   }
 }
 
-module.exports = { MockCdnServer };
+module.exports = { MockCdnServer, buildZip, buildTarGz };

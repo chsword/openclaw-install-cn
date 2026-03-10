@@ -12,6 +12,14 @@
   CLI version to download. Default: latest
 .PARAMETER InstallDir
   OpenClaw installation directory. Default: %LOCALAPPDATA%\OpenClaw
+.PARAMETER LocalBundle
+  Path to a local bundle directory to skip ALL network downloads
+  (offline / air-gap mode).  The directory must mirror the CDN structure:
+    {LocalBundle}\cli-manifest.json
+    {LocalBundle}\cli\{version}\oclaw-{version}-win32-{arch}.zip
+    {LocalBundle}\manifest.json
+    {LocalBundle}\{version}\openclaw-{version}-win32-{arch}.zip
+  Can also be set via the OCLAW_LOCAL_BUNDLE environment variable.
 .PARAMETER NodeMirror
   Mirror URL for Node.js binary downloads (default: https://nodejs.org/dist).
   Override with a China mirror when nodejs.org is inaccessible, e.g.:
@@ -27,12 +35,16 @@
   & ([scriptblock]::Create((irm https://your-cdn.example.com/install.ps1))) `
       -CdnBase "https://your-cdn.example.com" `
       -NodeMirror "https://npmmirror.com/mirrors/node"
+  # Offline local bundle:
+  & ([scriptblock]::Create((Get-Content install.ps1 -Raw))) `
+      -LocalBundle "C:\offline\openclaw-bundle"
 #>
 [CmdletBinding()]
 param(
   [string]$CdnBase        = $(if ($env:OCLAW_CDN)              { $env:OCLAW_CDN }              else { 'https://openclaw-cdn.example.com' }),
   [string]$CliVersion     = 'latest',
   [string]$InstallDir     = '',
+  [string]$LocalBundle    = $(if ($env:OCLAW_LOCAL_BUNDLE)     { $env:OCLAW_LOCAL_BUNDLE }     else { '' }),
   [string]$NodeMirror     = $(if ($env:NODE_MIRROR)            { $env:NODE_MIRROR }            else { 'https://nodejs.org/dist' }),
   [string]$NodeLtsVersion = $(if ($env:NODE_LTS_VERSION)       { $env:NODE_LTS_VERSION }       else { '' })
 )
@@ -214,6 +226,15 @@ function Main {
   Write-Host "  ╚══════════════════════════════════════╝" -ForegroundColor Blue
   Write-Host ""
 
+  if ($LocalBundle) {
+    Install-FromLocalBundle
+  } else {
+    Install-FromCdn
+  }
+}
+
+# ── Online CDN install ────────────────────────────────────────────────────────
+function Install-FromCdn {
   Test-NodeJs
 
   # Ensure bin dir
@@ -235,12 +256,26 @@ function Main {
   }
 
   # Determine architecture
+  # Windows ARM64 can run x64 executables via emulation; fall back to x64 if
+  # an arm64-specific CLI package is unavailable.
   $arch = if ([System.Environment]::Is64BitOperatingSystem) { 'x64' } else { 'ia32' }
-  # ARM detection
   if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { $arch = 'arm64' }
 
   $pkgName = "oclaw-${cliVer}-win32-${arch}.zip"
   $pkgUrl  = "$CdnBase/cli/$cliVer/$pkgName"
+
+  # ARM64: fall back to x64 if the arm64 package is unavailable
+  if ($arch -eq 'arm64') {
+    try {
+      Invoke-WebRequest -Uri $pkgUrl -Method Head -UseBasicParsing -TimeoutSec 10 | Out-Null
+    } catch {
+      Write-Warn "arm64 CLI package not found on CDN, falling back to x64..."
+      $arch    = 'x64'
+      $pkgName = "oclaw-${cliVer}-win32-x64.zip"
+      $pkgUrl  = "$CdnBase/cli/$cliVer/$pkgName"
+    }
+  }
+
   $tmpDir  = Join-Path $env:TEMP "oclaw-bootstrap"
   $pkgPath = Join-Path $tmpDir $pkgName
 
@@ -256,7 +291,7 @@ function Main {
   }
 
   Write-Info "Extracting..."
-  Expand-Archive -Force -Path $pkgPath -DestinationPath $tmpDir
+  Expand-Archive -Force -LiteralPath "$pkgPath" -DestinationPath "$tmpDir"
 
   # Find oclaw.exe
   $exePath = Get-ChildItem -Path $tmpDir -Filter 'oclaw.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -271,11 +306,111 @@ function Main {
   $env:Path = "$OclawBinDir;$env:Path"
 
   # Set CDN config
-  & "$OclawBinDir\oclaw.exe" config --cdn-url $CdnBase 2>$null
+  & "$OclawBinDir\oclaw.exe" config --cdn-url "$CdnBase" 2>$null
 
   # Install OpenClaw
   Write-Info "Installing OpenClaw from CDN ($CdnBase)..."
-  & "$OclawBinDir\oclaw.exe" install --dir $InstallDir
+  & "$OclawBinDir\oclaw.exe" install --dir "$InstallDir"
+
+  Write-Host ""
+  Write-Success "OpenClaw installed successfully!"
+  Write-Host ""
+
+  # Add to system PATH permanently
+  $currentPath = [System.Environment]::GetEnvironmentVariable('Path', 'User')
+  if ($currentPath -notlike "*$OclawBinDir*") {
+    [System.Environment]::SetEnvironmentVariable(
+      'Path',
+      "$currentPath;$OclawBinDir",
+      'User'
+    )
+    Write-Info "Added $OclawBinDir to user PATH."
+    Write-Warn "Restart your terminal for PATH changes to take effect."
+  }
+
+  # Cleanup temp
+  Remove-Item -Path $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# ── Offline local bundle install ──────────────────────────────────────────────
+function Install-FromLocalBundle {
+  $bundle = (Resolve-Path $LocalBundle -ErrorAction SilentlyContinue)
+  if (-not $bundle) {
+    Write-Fail "Local bundle directory not found: $LocalBundle"
+  }
+  $bundle = $bundle.Path
+  Write-Info "Offline mode: using local bundle at $bundle"
+
+  # Node.js is still required to run the oclaw CLI.
+  # In local bundle mode we do NOT auto-install Node.js from the internet.
+  $nodePath = Get-Command node -ErrorAction SilentlyContinue
+  if (-not $nodePath) {
+    Write-Fail "Node.js is required but not found.
+  In offline mode, please install Node.js >= 18 manually before running this script."
+  }
+
+  $nodeVer = & node -e "process.stdout.write(process.versions.node)"
+  $major   = [int]($nodeVer -split '\.')[0]
+  if ($major -lt 18) {
+    Write-Fail "Node.js $nodeVer is too old (need >= 18). Please upgrade manually and retry."
+  }
+  Write-Success "Node.js $nodeVer detected."
+
+  # Ensure bin dir
+  if (-not (Test-Path $OclawBinDir)) {
+    New-Item -ItemType Directory -Path $OclawBinDir -Force | Out-Null
+  }
+
+  # Determine architecture
+  # Windows ARM64 can run x64 executables via emulation; fall back to x64 if
+  # an arm64-specific CLI package is not present in the bundle.
+  $arch = if ([System.Environment]::Is64BitOperatingSystem) { 'x64' } else { 'ia32' }
+  if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { $arch = 'arm64' }
+
+  # Read CLI version from local cli-manifest.json
+  $cliManifestPath = Join-Path $bundle 'cli-manifest.json'
+  if (-not (Test-Path $cliManifestPath)) {
+    Write-Fail "cli-manifest.json not found in bundle: $bundle"
+  }
+  $cliManifest = Get-Content $cliManifestPath -Raw | ConvertFrom-Json
+  $cliVer = $cliManifest.latest
+  Write-Info "CLI version from local bundle: $cliVer"
+
+  # Locate CLI archive in bundle; fall back from arm64 to x64 if needed
+  $cliPkgName = "oclaw-${cliVer}-win32-${arch}.zip"
+  $cliPkgPath = Join-Path $bundle "cli\$cliVer\$cliPkgName"
+  if ($arch -eq 'arm64' -and -not (Test-Path $cliPkgPath)) {
+    Write-Warn "arm64 CLI package not found in bundle, falling back to x64..."
+    $arch       = 'x64'
+    $cliPkgName = "oclaw-${cliVer}-win32-x64.zip"
+    $cliPkgPath = Join-Path $bundle "cli\$cliVer\$cliPkgName"
+  }
+  if (-not (Test-Path $cliPkgPath)) {
+    Write-Fail "CLI package not found in bundle: $cliPkgPath"
+  }
+
+  $tmpDir = Join-Path $env:TEMP "oclaw-local-bootstrap"
+  if (-not (Test-Path $tmpDir)) {
+    New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
+  }
+
+  Write-Info "Extracting oclaw CLI from local bundle..."
+  Expand-Archive -Force -LiteralPath "$cliPkgPath" -DestinationPath "$tmpDir"
+
+  $exePath = Get-ChildItem -Path $tmpDir -Filter 'oclaw.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+  if (-not $exePath) {
+    Write-Fail "Could not find oclaw.exe in CLI package."
+  }
+
+  Copy-Item -Path $exePath.FullName -Destination (Join-Path $OclawBinDir 'oclaw.exe') -Force
+  Write-Success "oclaw CLI installed to $OclawBinDir\oclaw.exe"
+
+  # Add to PATH for this session
+  $env:Path = "$OclawBinDir;$env:Path"
+
+  # Install OpenClaw from local bundle
+  Write-Info "Installing OpenClaw from local bundle..."
+  & "$OclawBinDir\oclaw.exe" install --dir "$InstallDir" --local-package "$bundle"
 
   Write-Host ""
   Write-Success "OpenClaw installed successfully!"

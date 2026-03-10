@@ -12,6 +12,21 @@
 #   2. Download the oclaw CLI from CDN
 #   3. Run `oclaw install` to install OpenClaw
 #
+# ── Offline / local bundle mode ──────────────────────────────
+# Set OCLAW_LOCAL_BUNDLE to a local directory path to skip ALL
+# network downloads.  Useful for air-gap environments or when
+# you have a pre-downloaded "complete package".
+#
+# The directory must mirror the CDN structure:
+#   {OCLAW_LOCAL_BUNDLE}/cli-manifest.json
+#   {OCLAW_LOCAL_BUNDLE}/cli/{version}/oclaw-{version}-{os}-{arch}.tar.gz
+#   {OCLAW_LOCAL_BUNDLE}/manifest.json
+#   {OCLAW_LOCAL_BUNDLE}/{version}/openclaw-{version}-{os}-{arch}.tar.gz
+#
+# Example:
+#   export OCLAW_LOCAL_BUNDLE=/mnt/usb/openclaw-bundle
+#   bash install.sh
+#
 # ── Proxy / China mirror support ─────────────────────────────
 # If you are behind a corporate firewall or in mainland China, set
 # NODE_MIRROR before running the script to redirect Node.js downloads
@@ -33,6 +48,9 @@ CDN_BASE="${OCLAW_CDN:-https://openclaw-cdn.example.com}"
 CLI_VERSION="${OCLAW_CLI_VERSION:-latest}"
 INSTALL_DIR="${OCLAW_INSTALL_DIR:-$HOME/.openclaw}"
 OCLAW_BIN_DIR="${OCLAW_BIN_DIR:-$HOME/.local/bin}"
+
+# Set to a local directory to skip ALL network downloads (offline/air-gap mode).
+OCLAW_LOCAL_BUNDLE="${OCLAW_LOCAL_BUNDLE:-}"
 
 # Mirror for Node.js binary downloads.
 # Override with a China mirror when nodejs.org is inaccessible:
@@ -255,6 +273,15 @@ main() {
   echo "  ╚══════════════════════════════════════╝"
   echo ""
 
+  if [ -n "$OCLAW_LOCAL_BUNDLE" ]; then
+    _install_from_local_bundle
+  else
+    _install_from_cdn
+  fi
+}
+
+# ── Online CDN install ────────────────────────────────────────────────────────
+_install_from_cdn() {
   check_node
 
   # Create bin dir
@@ -309,6 +336,95 @@ main() {
   # Install OpenClaw
   info "Installing OpenClaw from CDN ($CDN_BASE)…"
   "$OCLAW_BIN_DIR/oclaw" install --dir "$INSTALL_DIR"
+
+  echo ""
+  success "OpenClaw installed successfully!"
+  echo ""
+
+  # PATH hint
+  case ":${PATH}:" in
+    *":$OCLAW_BIN_DIR:"*) ;;
+    *)
+      echo -e "  ${YELLOW}Add oclaw to your PATH by adding the following to your shell profile:${NC}"
+      echo ""
+      echo "    export PATH=\"\$PATH:$OCLAW_BIN_DIR\""
+      echo ""
+      ;;
+  esac
+}
+
+# ── Offline local bundle install ──────────────────────────────────────────────
+# Uses a pre-downloaded bundle directory instead of fetching from the internet.
+_install_from_local_bundle() {
+  local bundle
+  bundle=$(cd "$OCLAW_LOCAL_BUNDLE" 2>/dev/null && pwd) \
+    || die "Local bundle directory not found: $OCLAW_LOCAL_BUNDLE"
+
+  info "Offline mode: using local bundle at $bundle"
+
+  # Node.js is still required to run the oclaw CLI (unless using a standalone binary).
+  # In local bundle mode we do NOT auto-install Node.js from the internet.
+  if ! command -v node &>/dev/null; then
+    die "Node.js is required but not found.
+  In offline mode, please install Node.js >= 18 manually before running this script.
+  Download Node.js from a mirror you have access to, e.g.:
+    https://npmmirror.com/mirrors/node"
+  fi
+
+  local node_ver major
+  node_ver=$(node -e "process.stdout.write(process.versions.node)")
+  major=$(echo "$node_ver" | cut -d. -f1)
+  if [ "$major" -lt 18 ]; then
+    die "Node.js ${node_ver} is too old (need >= 18). Please upgrade manually and retry."
+  fi
+  success "Node.js ${node_ver} detected."
+
+  mkdir -p "$OCLAW_BIN_DIR"
+
+  # Determine platform identifiers
+  local os_name arch_name
+  os_name=$(uname -s | tr '[:upper:]' '[:lower:]')
+  arch_name=$(uname -m)
+  case "$arch_name" in
+    x86_64)  arch_name="x64"   ;;
+    aarch64) arch_name="arm64" ;;
+    arm64)   arch_name="arm64" ;;
+    *)       warn "Unknown arch $arch_name, defaulting to x64"; arch_name="x64" ;;
+  esac
+
+  # Resolve CLI version from local cli-manifest.json
+  local cli_manifest="$bundle/cli-manifest.json"
+  [ -f "$cli_manifest" ] || die "cli-manifest.json not found in bundle: $bundle"
+
+  local cli_ver
+  cli_ver=$(node -e "process.stdout.write(require('$cli_manifest').latest)" 2>/dev/null) \
+    || die "Could not read CLI version from $cli_manifest"
+  info "CLI version from local bundle: $cli_ver"
+
+  # Locate CLI archive in bundle
+  local cli_pkg_name="oclaw-${cli_ver}-${os_name}-${arch_name}.tar.gz"
+  local cli_pkg_path="$bundle/cli/${cli_ver}/${cli_pkg_name}"
+  [ -f "$cli_pkg_path" ] \
+    || die "CLI package not found in bundle: $cli_pkg_path"
+
+  local tmp_dir
+  tmp_dir=$(mktemp -d)
+  trap 'rm -rf "$tmp_dir"' EXIT
+
+  info "Extracting oclaw CLI from local bundle…"
+  tar -xzf "$cli_pkg_path" -C "$tmp_dir"
+
+  local bin_src="$tmp_dir/oclaw"
+  [ -f "$bin_src" ] || bin_src="$tmp_dir/bin/oclaw"
+  [ -f "$bin_src" ] || die "Could not find oclaw binary in CLI package."
+
+  chmod +x "$bin_src"
+  cp "$bin_src" "$OCLAW_BIN_DIR/oclaw"
+  success "oclaw CLI installed to $OCLAW_BIN_DIR/oclaw"
+
+  # Install OpenClaw from local bundle
+  info "Installing OpenClaw from local bundle…"
+  "$OCLAW_BIN_DIR/oclaw" install --dir "$INSTALL_DIR" --local-package "$bundle"
 
   echo ""
   success "OpenClaw installed successfully!"

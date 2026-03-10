@@ -196,9 +196,9 @@ jobs:
             $errors | ForEach-Object { Write-Error $_.Message }
             exit 1
           }
-          # Check all required parameters are present
+          # Check all required parameters are present (LocalBundle added for offline mode)
           $params = $ast.ParamBlock.Parameters.Name.VariablePath.UserPath
-          foreach ($p in @('CdnBase','CliVersion','InstallDir','NodeMirror','NodeLtsVersion')) {
+          foreach ($p in @('CdnBase','CliVersion','InstallDir','LocalBundle','NodeMirror','NodeLtsVersion')) {
             if ($params -notcontains $p) {
               Write-Error "Parameter -$p not found in install.ps1"
               exit 1
@@ -229,3 +229,79 @@ jobs:
             }
             Write-Host "  ✔ function $fn found"
           }
+
+      # ── Windows-compatibility regression guards ─────────────────────────────
+      # These steps validate the specific fixes made for Windows path-quoting
+      # and ARM64 compatibility.  They catch regressions if the fixes are
+      # accidentally reverted.
+
+      - name: Verify path quoting and -LiteralPath usage in install.ps1
+        shell: pwsh
+        run: |
+          $content = Get-Content 'scripts\install.ps1' -Raw
+          $ok = $true
+
+          # Expand-Archive must use -LiteralPath to prevent wildcard expansion
+          # on path characters like '[', ']', '?', '*'.
+          if ($content -notmatch 'Expand-Archive[^\r\n]*-LiteralPath') {
+            Write-Error "Expand-Archive in install.ps1 must use -LiteralPath (not -Path)"
+            $ok = $false
+          } else {
+            Write-Host '  ✔ Expand-Archive uses -LiteralPath'
+          }
+
+          # --dir argument must be double-quoted so paths with spaces work.
+          # Matches:  oclaw.exe install --dir "$InstallDir"
+          if ($content -notmatch 'install --dir "\$InstallDir"') {
+            Write-Error 'install.ps1 must quote $InstallDir: oclaw.exe install --dir "$InstallDir"'
+            $ok = $false
+          } else {
+            Write-Host '  ✔ --dir "$InstallDir" is quoted'
+          }
+
+          # --local-package argument must be double-quoted (offline/air-gap mode).
+          if ($content -notmatch '--local-package "\$bundle"') {
+            Write-Error 'install.ps1 must quote $bundle: oclaw.exe install --local-package "$bundle"'
+            $ok = $false
+          } else {
+            Write-Host '  ✔ --local-package "$bundle" is quoted'
+          }
+
+          if (-not $ok) { exit 1 }
+
+      - name: Verify ARM64 fallback logic in install.ps1
+        shell: pwsh
+        run: |
+          $content = Get-Content 'scripts\install.ps1' -Raw
+          $ok = $true
+
+          # At least two "falling back to x64" messages expected:
+          # one for CDN mode and one for local-bundle mode.
+          $count = ([regex]::Matches($content, 'falling back to x64')).Count
+          if ($count -lt 2) {
+            Write-Error "Expected >= 2 ARM64->x64 fallback messages in install.ps1, found $count"
+            $ok = $false
+          } else {
+            Write-Host "  ✔ ARM64->x64 fallback messages found ($count occurrences)"
+          }
+
+          # CDN mode: must probe the URL with a HEAD request before downloading
+          # the arm64 package, so missing packages fall back gracefully.
+          if ($content -notmatch 'Invoke-WebRequest[^\r\n]*Method Head') {
+            Write-Error "install.ps1 CDN mode must probe arm64 URL with Invoke-WebRequest -Method Head"
+            $ok = $false
+          } else {
+            Write-Host '  ✔ CDN mode ARM64 probe (Invoke-WebRequest HEAD) found'
+          }
+
+          # Bundle mode: must Test-Path the arm64 package before falling back.
+          # Check separately that both 'arm64' (as a condition) and 'Test-Path'
+          # are present in the same conditional block; avoids fragile single-line regex.
+          if (($content -notmatch '\$arch.*arm64') -or ($content -notmatch 'Test-Path \$cliPkgPath')) {
+            Write-Error "install.ps1 bundle mode must check Test-Path for arm64 package before fallback"
+            $ok = $false
+          } else {
+            Write-Host '  ✔ Bundle mode ARM64 Test-Path guard found'
+          }
+
+          if (-not $ok) { exit 1 }
