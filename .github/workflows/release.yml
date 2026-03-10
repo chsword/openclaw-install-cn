@@ -1,10 +1,13 @@
 name: Release
 
-# Triggered by pushing a semver tag: git tag v1.2.3 && git push origin v1.2.3
+# Triggered by:
+#   1. Pushing a semver tag:  git tag v1.2.3 && git push origin v1.2.3
+#   2. Workflow dispatch from ci.yml auto-tag job (works around GITHUB_TOKEN trigger limitation)
 on:
   push:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
 
 permissions:
   contents: write   # needed to create releases and upload assets
