@@ -8,6 +8,7 @@
  *   oclaw upgrade [--check]
  *   oclaw status  [--check-updates]
  *   oclaw config  [--cdn-url <url>] [--dir <path>] [--reset] [--list]
+ *   oclaw version
  */
 
 const { program } = require('commander');
@@ -16,7 +17,7 @@ const pkg = require('../package.json');
 program
   .name('oclaw')
   .description('OpenClaw installer and updater — downloads only from CDN, no npm/GitHub required')
-  .version(pkg.version);
+  .version(pkg.version, '-v, --version', 'display the oclaw CLI version');
 
 // ── install ────────────────────────────────────────────────────────────────────
 program
@@ -62,6 +63,14 @@ program
   .action((opts) => {
     const { runConfig } = require('./commands/config');
     runConfig(opts);
+  });
+
+// ── version ────────────────────────────────────────────────────────────────────
+program
+  .command('version')
+  .description('Display the oclaw CLI version')
+  .action(() => {
+    console.log(pkg.version);
   });
 
 // ── error handling ─────────────────────────────────────────────────────────────
