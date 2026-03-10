@@ -15,7 +15,7 @@ if (process.platform === 'win32') {
   process.env.LOCALAPPDATA = path.join(tmpDir, 'AppData', 'Local');
 }
 
-const { loadConfig, saveConfig, updateConfig, DEFAULT_CDN_BASE } = require('../lib/config');
+const { loadConfig, saveConfig, updateConfig, DEFAULT_CDN_BASE, getConfigFilePath } = require('../lib/config');
 
 describe('config', () => {
   before(() => {
@@ -46,7 +46,7 @@ describe('config', () => {
   test('saveConfig does not persist cdnBase to disk', () => {
     const cfg = loadConfig();
     saveConfig(cfg);
-    const raw = JSON.parse(fs.readFileSync(path.join(tmpDir, '.oclaw', 'config.json'), 'utf-8'));
+    const raw = JSON.parse(fs.readFileSync(getConfigFilePath(), 'utf-8'));
     assert.ok(!Object.prototype.hasOwnProperty.call(raw, 'cdnBase'), 'cdnBase must not be saved to disk');
   });
 
