@@ -1,11 +1,30 @@
 # openclaw-install-cn
 
-> OpenClaw 中国大陆 / 受限内网离线安装工具  
-> Install and update [OpenClaw](https://openclaw.ai/) from a private CDN — no npm / GitHub access required.
+<p align="center">
+  <a href="https://github.com/chsword/openclaw-install-cn/actions/workflows/ci.yml">
+    <img src="https://github.com/chsword/openclaw-install-cn/actions/workflows/ci.yml/badge.svg" alt="CI">
+  </a>
+  <a href="https://github.com/chsword/openclaw-install-cn/actions/workflows/release.yml">
+    <img src="https://github.com/chsword/openclaw-install-cn/actions/workflows/release.yml/badge.svg" alt="Release">
+  </a>
+  <a href="https://github.com/chsword/openclaw-install-cn/releases/latest">
+    <img src="https://img.shields.io/github/v/release/chsword/openclaw-install-cn?label=latest" alt="Latest Release">
+  </a>
+  <a href="https://opensource.org/licenses/MIT">
+    <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT">
+  </a>
+  <img src="https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg" alt="Node.js >= 18">
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue.svg" alt="Platform: Windows | macOS | Linux">
+</p>
+
+<p align="center">
+  OpenClaw 中国大陆 / 受限内网离线安装工具<br>
+  Install and update <a href="https://openclaw.ai/">OpenClaw</a> from a private CDN — no npm / GitHub access required.
+</p>
 
 ---
 
-## 项目背景
+## 📖 项目背景
 
 OpenClaw 是一个开源、本地运行的 AI Agent 平台，支持 Windows / macOS / Linux。  
 在中国大陆或受限内网环境中，其依赖包（npm、GitHub Release）无法正常下载。
@@ -23,7 +42,7 @@ OpenClaw 是一个开源、本地运行的 AI Agent 平台，支持 Windows / ma
 
 ---
 
-## 快速开始
+## 🚀 快速开始
 
 ### 方法一：一键引导脚本（推荐）
 
@@ -65,7 +84,7 @@ node bin/oclaw.js status --check-updates
 
 ---
 
-## CLI 用法
+## 🛠️ CLI 用法
 
 ```
 oclaw <command> [options]
@@ -103,7 +122,7 @@ config options:
 
 ---
 
-## GUI（Windows / macOS / Linux）
+## 🖥️ GUI（Windows / macOS / Linux）
 
 GUI 基于 Electron 构建，提供图形化界面，适合非技术用户。
 
@@ -132,7 +151,7 @@ npm run build:all    # Windows / macOS / Linux 全平台
 
 ---
 
-## CDN 搭建
+## ☁️ CDN 搭建
 
 请参考 [`cdn-template/`](./cdn-template/) 目录，其中包含：
 
@@ -150,7 +169,7 @@ npm run build:all    # Windows / macOS / Linux 全平台
 
 ---
 
-## 空环境 vs 已安装环境
+## ⚙️ 空环境 vs 已安装环境
 
 | 情况 | 行为 |
 |------|------|
@@ -161,7 +180,7 @@ CLI 通过 `{installDir}/.oclaw-version` 文件识别当前安装版本，兼容
 
 ---
 
-## 开发
+## 🔧 开发
 
 ### 目录结构
 
@@ -205,6 +224,6 @@ npm test
 
 ---
 
-## License
+## 📄 License
 
 MIT
