@@ -133,9 +133,16 @@ function buildIco(pngData) {
 function buildIcns(entries) {
   const entryBuffers = entries.map(({ type, png }) => {
     const typeB = Buffer.from(type, 'ascii'); // 4 bytes
+
+    // Pad PNG payload to a 4-byte boundary (ICNS elements are commonly 4-byte aligned)
+    const padding = (4 - (png.length % 4)) % 4;
+    const paddedPng = padding === 0 ? png : Buffer.concat([png, Buffer.alloc(padding)]);
+
     const sizeB = Buffer.alloc(4);
-    sizeB.writeUInt32BE(8 + png.length);      // size field: 4-byte type + 4-byte size + PNG data
-    return Buffer.concat([typeB, sizeB, png]);
+    // size field: 4-byte type + 4-byte size + PNG data (including any padding)
+    sizeB.writeUInt32BE(8 + paddedPng.length);
+
+    return Buffer.concat([typeB, sizeB, paddedPng]);
   });
   const body      = Buffer.concat(entryBuffers);
   const totalSize = 8 + body.length;          // ICNS header (8) + entries
