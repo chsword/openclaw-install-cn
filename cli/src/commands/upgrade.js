@@ -49,10 +49,10 @@ async function runUpgrade(options = {}) {
   if (!isInstalled(installDir) && !installedVersion) {
     if (options.json) {
       console.log(JSON.stringify({ error: 'OpenClaw does not appear to be installed yet.' }, null, 2));
-      process.exit(1);
+    } else {
+      log.warn('OpenClaw does not appear to be installed yet.');
+      log.dim('Run `oclaw install` to install it first.');
     }
-    log.warn('OpenClaw does not appear to be installed yet.');
-    log.dim('Run `oclaw install` to install it first.');
     process.exit(1);
   }
 
@@ -63,9 +63,9 @@ async function runUpgrade(options = {}) {
   } catch (err) {
     if (options.json) {
       console.log(JSON.stringify({ error: `Failed to check for updates: ${err.message}` }, null, 2));
-      process.exit(1);
+    } else {
+      log.error(`Failed to check for updates: ${err.message}`);
     }
-    log.error(`Failed to check for updates: ${err.message}`);
     process.exit(1);
   }
 

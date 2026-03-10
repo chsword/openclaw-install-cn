@@ -13,6 +13,8 @@ const configDir = path.join(tmpDir, '.oclaw');
 // Redirect config to temp dir
 process.env.HOME = tmpDir;
 if (process.platform === 'win32') {
+  // On Windows, os.homedir() uses USERPROFILE (not HOME)
+  process.env.USERPROFILE = tmpDir;
   process.env.LOCALAPPDATA = path.join(tmpDir, 'AppData', 'Local');
 }
 
