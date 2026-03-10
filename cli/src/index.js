@@ -25,6 +25,7 @@ program
   .option('--version <version>', 'install a specific version (default: latest)')
   .option('--dir <path>', 'override installation directory')
   .option('--force', 'reinstall even if already at the same version', false)
+  .option('--local-package <path>', 'install from a local directory or archive file (offline mode)')
   .action(async (opts) => {
     const { runInstall } = require('./commands/install');
     await runInstall(opts).catch(fatalError);
