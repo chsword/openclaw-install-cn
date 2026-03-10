@@ -131,7 +131,12 @@ function buildIco(pngData) {
  * @returns {Buffer}
  */
 function buildIcns(entries) {
-  const entryBuffers = entries.map(({ type, png }) => {
+  const entryBuffers = entries.map(({ type, png }, index) => {
+    if (typeof type !== 'string' || type.length !== 4) {
+      throw new Error(
+        `ICNS entry "type" must be a 4-character ASCII string, got ${JSON.stringify(type)} at index ${index}`
+      );
+    }
     const typeB = Buffer.from(type, 'ascii'); // 4 bytes
 
     // Pad PNG payload to a 4-byte boundary (ICNS elements are commonly 4-byte aligned)
