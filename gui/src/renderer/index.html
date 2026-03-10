@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OpenClaw 安装程序</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-inner">
+      <div class="logo">
+        <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="18" cy="18" r="18" fill="#0066cc"/>
+          <path d="M10 24 L18 10 L26 24 Z" fill="white" opacity="0.9"/>
+          <circle cx="18" cy="23" r="3" fill="white"/>
+        </svg>
+        <span class="logo-text">OpenClaw</span>
+      </div>
+      <span class="header-subtitle">中国大陆离线安装工具</span>
+    </div>
+  </header>
+
+  <!-- Main content -->
+  <main class="main">
+
+    <!-- Status card -->
+    <section class="card" id="card-status">
+      <h2 class="card-title">安装状态</h2>
+      <div class="status-grid">
+        <div class="status-row">
+          <span class="status-label">当前版本</span>
+          <span class="status-value" id="val-installed-version">检查中…</span>
+        </div>
+        <div class="status-row">
+          <span class="status-label">最新版本</span>
+          <span class="status-value" id="val-latest-version">–</span>
+        </div>
+        <div class="status-row">
+          <span class="status-label">安装目录</span>
+          <span class="status-value dir-link" id="val-install-dir" title="点击打开目录">–</span>
+        </div>
+        <div class="status-row">
+          <span class="status-label">系统平台</span>
+          <span class="status-value" id="val-platform">–</span>
+        </div>
+        <div class="status-row">
+          <span class="status-label">CDN 地址</span>
+          <span class="status-value small" id="val-cdn">–</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Action buttons -->
+    <section class="actions">
+      <button class="btn btn-primary" id="btn-install">安装 / 升级</button>
+      <button class="btn btn-secondary" id="btn-check">检查更新</button>
+      <button class="btn btn-ghost" id="btn-settings">⚙ 设置</button>
+    </section>
+
+    <!-- Progress area -->
+    <section class="card progress-card" id="card-progress" style="display:none">
+      <div class="progress-status" id="progress-status">准备中…</div>
+      <div class="progress-bar-wrap">
+        <div class="progress-bar" id="progress-bar" style="width:0%"></div>
+      </div>
+      <div class="progress-pct" id="progress-pct">0%</div>
+    </section>
+
+    <!-- Settings panel -->
+    <section class="card settings-card" id="card-settings" style="display:none">
+      <h2 class="card-title">设置</h2>
+      <div class="form-row">
+        <label for="inp-cdn">CDN 地址</label>
+        <input type="text" id="inp-cdn" placeholder="https://your-cdn.example.com" />
+      </div>
+      <div class="form-row">
+        <label for="inp-dir">安装目录</label>
+        <input type="text" id="inp-dir" placeholder="留空使用默认目录" />
+      </div>
+      <div class="settings-actions">
+        <button class="btn btn-primary" id="btn-save-settings">保存</button>
+        <button class="btn btn-ghost" id="btn-cancel-settings">取消</button>
+      </div>
+    </section>
+
+    <!-- Message area -->
+    <div class="message-area" id="message-area" style="display:none"></div>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <span>OpenClaw Installer · 仅从 CDN 下载，无需访问 npm / GitHub</span>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

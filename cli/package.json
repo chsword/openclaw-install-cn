@@ -1,0 +1,43 @@
+{
+  "name": "openclaw-install-cn",
+  "version": "1.0.0",
+  "description": "OpenClaw installer and updater for China mainland / restricted networks - installs from CDN without npm/GitHub access",
+  "main": "src/index.js",
+  "bin": {
+    "oclaw": "bin/oclaw.js"
+  },
+  "scripts": {
+    "start": "node bin/oclaw.js",
+    "test": "node --test src/__tests__/*.test.js",
+    "lint": "eslint src/ bin/",
+    "build": "npm run build:bin",
+    "build:bin": "pkg . --out-path dist --targets node18-win-x64,node18-macos-x64,node18-macos-arm64,node18-linux-x64"
+  },
+  "keywords": [
+    "openclaw",
+    "installer",
+    "cdn",
+    "china"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "commander": "^12.1.0"
+  },
+  "devDependencies": {
+    "pkg": "^5.8.1"
+  },
+  "pkg": {
+    "assets": [],
+    "targets": [
+      "node18-win-x64",
+      "node18-macos-x64",
+      "node18-macos-arm64",
+      "node18-linux-x64"
+    ],
+    "outputPath": "dist"
+  }
+}
