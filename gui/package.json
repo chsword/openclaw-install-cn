@@ -6,6 +6,9 @@
   "scripts": {
     "start": "electron .",
     "build": "electron-builder --win",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux",
     "build:all": "electron-builder -mwl",
     "pack": "electron-builder --dir"
   },
@@ -25,7 +28,10 @@
     "appId": "ai.openclaw.installer",
     "productName": "OpenClaw Installer",
     "copyright": "Copyright © 2025",
+    "icon": "assets/icon.png",
+    "artifactName": "${name}-${version}-${platform}-${arch}.${ext}",
     "win": {
+      "icon": "assets/icon.ico",
       "target": [
         {
           "target": "nsis",
@@ -35,26 +41,34 @@
           "target": "portable",
           "arch": ["x64"]
         }
-      ],
-      "icon": "assets/icon.ico"
+      ]
     },
     "mac": {
-      "target": "dmg",
-      "icon": "assets/icon.icns"
+      "target": [
+        { "target": "dmg", "arch": ["x64", "arm64"] }
+      ]
     },
     "linux": {
-      "target": "AppImage",
-      "icon": "assets/icon.png"
+      "target": [
+        { "target": "AppImage", "arch": ["x64"] }
+      ]
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "installerFileName": "${name}-setup-${version}-${arch}.exe"
     },
     "directories": {
       "output": "dist",
       "buildResources": "assets"
-    }
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "!src/**/__tests__/**"
+    ]
   }
 }
+

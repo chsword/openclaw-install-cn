@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - 'copilot/**'
+      - 'feature/**'
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'cdn-template/**'
+  pull_request:
+    branches:
+      - main
+      - develop
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'cdn-template/**'
+
+jobs:
+  # ── CLI Tests ──────────────────────────────────────────────────────────────
+  test-cli:
+    name: Test CLI (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: ['20']
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ matrix.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: 'npm'
+          cache-dependency-path: cli/package-lock.json
+
+      - name: Install CLI dependencies
+        run: npm ci
+        working-directory: cli
+
+      - name: Run tests
+        run: npm test
+        working-directory: cli
+
+  # ── CLI Lint (Linux only) ──────────────────────────────────────────────────
+  lint-cli:
+    name: Lint CLI
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: cli/package-lock.json
+      - run: npm ci
+        working-directory: cli
+      # eslint is only a devDep if added; skip gracefully if not installed
+      - name: Lint (if eslint configured)
+        run: |
+          if [ -f cli/.eslintrc* ] || grep -q '"eslint"' cli/package.json 2>/dev/null; then
+            npm run lint --if-present
+          else
+            echo "No ESLint configuration found – skipping lint step."
+          fi
+
+  # ── Quick build check (Linux only, node18) ────────────────────────────────
+  build-check-cli:
+    name: Build CLI (Linux check)
+    needs: test-cli
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: cli/package-lock.json
+      - run: npm ci
+        working-directory: cli
+      - name: Build Linux binary
+        run: npm run build:linux
+        working-directory: cli
+      - name: Smoke-test binary
+        run: |
+          ./cli/dist/oclaw-linux-x64 --version
+          ./cli/dist/oclaw-linux-x64 status
