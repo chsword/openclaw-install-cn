@@ -126,6 +126,8 @@ config options:
 
 GUI 基于 Electron 构建，提供图形化界面，适合非技术用户。
 
+📖 **[查看完整 GUI 使用说明 →](docs/gui-guide.md)**
+
 ### 开发运行
 
 ```bash
@@ -140,6 +142,11 @@ npm start
 - 一键安装 / 升级（含下载进度条）
 - 配置 CDN 地址和安装目录
 - 点击安装目录可直接在文件管理器中打开
+- 查看详细安装日志（支持按级别过滤、导出）
+
+### 界面预览
+
+![GUI 主界面](docs/screenshots/screenshot_01_main.png)
 
 ### 构建发布包
 
