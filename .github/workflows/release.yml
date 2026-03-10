@@ -104,6 +104,12 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Cache Electron
+        uses: actions/cache@v4
+        with:
+          path: ~/AppData/Local/electron/Cache
+          key: ${{ runner.os }}-electron-${{ hashFiles('gui/package.json') }}
+
       - name: Set version from tag
         id: ver
         shell: bash
@@ -145,10 +151,120 @@ jobs:
             gui/dist/**/*.exe
           retention-days: 1
 
-  # ── 4. Create GitHub Release ────────────────────────────────────────────────
+  # ── 4. Build macOS GUI ──────────────────────────────────────────────────────
+  build-gui-mac:
+    name: Build macOS GUI
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Cache Electron
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/electron
+          key: ${{ runner.os }}-electron-${{ hashFiles('gui/package.json') }}
+
+      - name: Set version from tag
+        id: ver
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Update GUI version in package.json
+        run: |
+          cd gui
+          npm version "${{ steps.ver.outputs.version }}" --no-git-tag-version --allow-same-version
+        continue-on-error: true
+
+      - name: Generate placeholder icons
+        run: node scripts/gen-icons.js
+
+      - name: Install GUI dependencies
+        run: npm install
+        working-directory: gui
+
+      - name: Build macOS GUI (x64 + arm64)
+        run: npm run build:mac
+        working-directory: gui
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Disable code signing – no certificate available in CI
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: List GUI build output
+        run: ls -lh gui/dist/
+
+      - name: Upload macOS GUI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gui-mac
+          path: gui/dist/*.dmg
+          retention-days: 1
+
+  # ── 5. Build Linux GUI ──────────────────────────────────────────────────────
+  build-gui-linux:
+    name: Build Linux GUI
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Cache Electron
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/electron
+          key: ${{ runner.os }}-electron-${{ hashFiles('gui/package.json') }}
+
+      - name: Set version from tag
+        id: ver
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Update GUI version in package.json
+        run: |
+          cd gui
+          npm version "${{ steps.ver.outputs.version }}" --no-git-tag-version --allow-same-version
+        continue-on-error: true
+
+      - name: Generate placeholder icons
+        run: node scripts/gen-icons.js
+
+      - name: Install GUI dependencies
+        run: npm install
+        working-directory: gui
+
+      - name: Build Linux GUI (AppImage)
+        run: npm run build:linux
+        working-directory: gui
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: List GUI build output
+        run: ls -lh gui/dist/
+
+      - name: Upload Linux GUI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gui-linux
+          path: gui/dist/*.AppImage
+          retention-days: 1
+
+  # ── 6. Create GitHub Release ────────────────────────────────────────────────
   release:
     name: Create GitHub Release
-    needs: [build-cli, build-gui-win]
+    needs: [build-cli, build-gui-win, build-gui-mac, build-gui-linux]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -170,7 +286,19 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: gui-win
-          path: artifacts/gui/
+          path: artifacts/gui/win/
+
+      - name: Download macOS GUI
+        uses: actions/download-artifact@v4
+        with:
+          name: gui-mac
+          path: artifacts/gui/mac/
+
+      - name: Download Linux GUI
+        uses: actions/download-artifact@v4
+        with:
+          name: gui-linux
+          path: artifacts/gui/linux/
 
       - name: Make CLI binaries executable
         run: chmod +x artifacts/cli/oclaw-darwin-x64 artifacts/cli/oclaw-darwin-arm64 artifacts/cli/oclaw-linux-x64 || true
@@ -287,12 +415,15 @@ jobs:
           oclaw upgrade
           \`\`\`
 
-          ### 🖥️ Windows GUI 安装程序
+          ### 🖥️ GUI 安装程序
 
-          | 文件 | 说明 |
-          |------|------|
-          | \`openclaw-gui-setup-${VERSION}-x64.exe\` | NSIS 安装向导（推荐）|
-          | \`openclaw-gui-${VERSION}-win-x64.exe\` | 免安装便携版 |
+          | 文件 | 平台 | 说明 |
+          |------|------|------|
+          | \`openclaw-gui-setup-${VERSION}-x64.exe\` | Windows | NSIS 安装向导（推荐）|
+          | \`openclaw-gui-${VERSION}-win-x64.exe\` | Windows | 免安装便携版 |
+          | \`openclaw-gui-${VERSION}-mac-x64.dmg\` | macOS | Intel x64 磁盘映像 |
+          | \`openclaw-gui-${VERSION}-mac-arm64.dmg\` | macOS | Apple Silicon 磁盘映像 |
+          | \`openclaw-gui-${VERSION}-linux-x64.AppImage\` | Linux | AppImage 便携版 |
 
           ### 🛠️ 引导脚本
 
@@ -341,7 +472,10 @@ jobs:
             artifacts/cli/oclaw-darwin-x64
             artifacts/cli/oclaw-darwin-arm64
             artifacts/cli/oclaw-linux-x64
-            artifacts/gui/*.exe
+            artifacts/gui/win/*.exe
+            artifacts/gui/win/**/*.exe
+            artifacts/gui/mac/*.dmg
+            artifacts/gui/linux/*.AppImage
             scripts/install.sh
             scripts/install.ps1
             cdn-template/manifest.json
