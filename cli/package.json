@@ -8,7 +8,7 @@
   },
   "scripts": {
     "start": "node bin/oclaw.js",
-    "test": "node --test src/__tests__/config.test.js src/__tests__/installer.test.js src/__tests__/install.test.js src/__tests__/platform.test.js src/__tests__/upgrade.test.js src/__tests__/downloader.test.js src/__tests__/logger.test.js",
+    "test": "node --test src/__tests__/config.test.js src/__tests__/installer.test.js src/__tests__/install.test.js src/__tests__/platform.test.js src/__tests__/upgrade.test.js src/__tests__/downloader.test.js src/__tests__/logger.test.js src/__tests__/completion.test.js",
     "test:integration": "node --test src/__tests__/integration/integration.test.js",
     "test:all": "npm test && npm run test:integration",
     "lint": "eslint src/ bin/",

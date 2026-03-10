@@ -4,11 +4,12 @@
  * oclaw <command> [options]
  *
  * Usage:
- *   oclaw install [--version <ver>] [--dir <path>] [--force]
- *   oclaw upgrade [--check]
- *   oclaw status  [--check-updates]
- *   oclaw config  [--dir <path>] [--reset] [--list]
+ *   oclaw install    [--version <ver>] [--dir <path>] [--force]
+ *   oclaw upgrade    [--check]
+ *   oclaw status     [--check-updates]
+ *   oclaw config     [--dir <path>] [--reset] [--list]
  *   oclaw version
+ *   oclaw completion [--shell bash|zsh|fish]
  */
 
 const { program } = require('commander');
@@ -79,6 +80,16 @@ program
   .description('Display the oclaw CLI version')
   .action(() => {
     console.log(pkg.version);
+  });
+
+// ── completion ─────────────────────────────────────────────────────────────────
+program
+  .command('completion')
+  .description('Generate shell completion script (bash, zsh, or fish)')
+  .option('--shell <shell>', 'target shell: bash, zsh, or fish (default: bash)')
+  .action((opts) => {
+    const { runCompletion } = require('./commands/completion');
+    runCompletion(opts);
   });
 
 // ── error handling ─────────────────────────────────────────────────────────────
