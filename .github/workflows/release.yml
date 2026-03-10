@@ -783,3 +783,37 @@ jobs:
           # Upload manifests (overwrite latest)
           coscmd upload cdn-template/manifest.json     manifest.json
           coscmd upload cdn-template/cli-manifest.json cli-manifest.json
+
+      - name: Refresh CDN cache
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          CDN_DOMAIN: https://oclaw.chatu.plus
+        run: |
+          pip install tccli==3.1.48.1
+          tccli configure set \
+            secretId  "${{ secrets.SECRETID }}" \
+            secretKey "${{ secrets.SECRETKEY }}" \
+            region    "ap-guangzhou"
+
+          # Build JSON array of URLs to purge.
+          # Always purge overwritten files (manifests + install scripts) and
+          # the versioned CLI packages uploaded in this release.
+          URLS=$(python3 - <<'PYEOF'
+          import json, os
+          base = os.environ['CDN_DOMAIN']
+          v    = os.environ['VERSION']
+          print(json.dumps([
+              base + '/manifest.json',
+              base + '/cli-manifest.json',
+              base + '/install.sh',
+              base + '/install.ps1',
+              base + '/cli/' + v + '/oclaw-' + v + '-win32-x64.zip',
+              base + '/cli/' + v + '/oclaw-' + v + '-darwin-x64.tar.gz',
+              base + '/cli/' + v + '/oclaw-' + v + '-darwin-arm64.tar.gz',
+              base + '/cli/' + v + '/oclaw-' + v + '-linux-x64.tar.gz',
+          ]))
+          PYEOF
+          )
+          echo "Purging CDN URLs: $URLS"
+          tccli cdn PurgeUrlsCache --Urls "$URLS"
+          echo "CDN cache purge submitted successfully"
