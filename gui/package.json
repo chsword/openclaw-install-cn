@@ -26,7 +26,7 @@
   "license": "MIT",
   "devDependencies": {
     "electron": "^31.0.0",
-    "electron-builder": "^24.13.3"
+    "electron-builder": "^26.8.1"
   },
   "build": {
     "appId": "ai.openclaw.installer",
