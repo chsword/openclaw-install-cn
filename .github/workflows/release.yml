@@ -317,17 +317,95 @@ jobs:
           echo ""
           cat checksums.sha256
 
+      - name: Package artifacts for CDN
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          mkdir -p cdn-packages
+
+          # CLI packages
+          (cd artifacts/cli && zip "$OLDPWD/cdn-packages/oclaw-${VERSION}-win32-x64.zip" oclaw-win-x64.exe)
+          (cd artifacts/cli && tar -czf "$OLDPWD/cdn-packages/oclaw-${VERSION}-darwin-x64.tar.gz" oclaw-darwin-x64)
+          (cd artifacts/cli && tar -czf "$OLDPWD/cdn-packages/oclaw-${VERSION}-darwin-arm64.tar.gz" oclaw-darwin-arm64)
+          (cd artifacts/cli && tar -czf "$OLDPWD/cdn-packages/oclaw-${VERSION}-linux-x64.tar.gz" oclaw-linux-x64)
+
+          # GUI packages - locate the actual built files and wrap them
+          WIN_EXE=$(find artifacts/gui/win -name "*.exe" | sort | head -1)
+          MAC_X64_DMG=$(find artifacts/gui/mac -name "*x64*.dmg" | sort | head -1)
+          MAC_ARM64_DMG=$(find artifacts/gui/mac -name "*arm64*.dmg" | sort | head -1)
+          LINUX_APPIMAGE=$(find artifacts/gui/linux -name "*.AppImage" | sort | head -1)
+
+          if [ -n "$WIN_EXE" ]; then
+            (cd "$(dirname "$WIN_EXE")"       && zip     "$OLDPWD/cdn-packages/openclaw-${VERSION}-win32-x64.zip"        "$(basename "$WIN_EXE")")
+          else
+            echo "WARNING: No Windows GUI exe found – openclaw-${VERSION}-win32-x64.zip will be missing"
+          fi
+          if [ -n "$MAC_X64_DMG" ]; then
+            (cd "$(dirname "$MAC_X64_DMG")"   && tar -czf "$OLDPWD/cdn-packages/openclaw-${VERSION}-darwin-x64.tar.gz"   "$(basename "$MAC_X64_DMG")")
+          else
+            echo "WARNING: No macOS x64 dmg found – openclaw-${VERSION}-darwin-x64.tar.gz will be missing"
+          fi
+          if [ -n "$MAC_ARM64_DMG" ]; then
+            (cd "$(dirname "$MAC_ARM64_DMG")" && tar -czf "$OLDPWD/cdn-packages/openclaw-${VERSION}-darwin-arm64.tar.gz" "$(basename "$MAC_ARM64_DMG")")
+          else
+            echo "WARNING: No macOS arm64 dmg found – openclaw-${VERSION}-darwin-arm64.tar.gz will be missing"
+          fi
+          if [ -n "$LINUX_APPIMAGE" ]; then
+            (cd "$(dirname "$LINUX_APPIMAGE")" && tar -czf "$OLDPWD/cdn-packages/openclaw-${VERSION}-linux-x64.tar.gz"   "$(basename "$LINUX_APPIMAGE")")
+          else
+            echo "WARNING: No Linux AppImage found – openclaw-${VERSION}-linux-x64.tar.gz will be missing"
+          fi
+
+          echo "CDN packages created:"
+          ls -lh cdn-packages/ || echo "(no packages created)"
+
       - name: Update CDN manifest versions
         run: |
           VERSION="${{ steps.ver.outputs.version }}"
-          # Update openclaw package manifest with new version
+          # Update openclaw package manifest with new version and actual checksums
           python3 - <<'EOF'
-          import json, sys, os
+          import json, sys, os, hashlib, glob as _glob
+
+          def sha256_file(path):
+              h = hashlib.sha256()
+              with open(path, 'rb') as f:
+                  for chunk in iter(lambda: f.read(65536), b''):
+                      h.update(chunk)
+              return h.hexdigest()
+
+          def checksum_for(pattern):
+              matches = _glob.glob(pattern)
+              if not matches:
+                  print(f"WARNING: No file found for pattern '{pattern}' – using placeholder")
+                  return 'sha256:REPLACE_WITH_ACTUAL'
+              if len(matches) > 1:
+                  print(f"WARNING: Multiple files match '{pattern}': {matches} – using first match")
+              return 'sha256:' + sha256_file(matches[0])
 
           version = os.environ.get('VERSION', '')
           if not version:
               print("No version set, skipping manifest update")
               sys.exit(0)
+
+          cdn_dir = 'cdn-packages'
+
+          # Compute checksums for CLI CDN packages
+          cli_checksums = {
+              'win32-x64':    checksum_for(f'{cdn_dir}/oclaw-{version}-win32-x64.zip'),
+              'darwin-x64':   checksum_for(f'{cdn_dir}/oclaw-{version}-darwin-x64.tar.gz'),
+              'darwin-arm64': checksum_for(f'{cdn_dir}/oclaw-{version}-darwin-arm64.tar.gz'),
+              'linux-x64':    checksum_for(f'{cdn_dir}/oclaw-{version}-linux-x64.tar.gz'),
+          }
+
+          # Compute checksums for GUI (openclaw) CDN packages
+          gui_checksums = {
+              'win32-x64':    checksum_for(f'{cdn_dir}/openclaw-{version}-win32-x64.zip'),
+              'darwin-x64':   checksum_for(f'{cdn_dir}/openclaw-{version}-darwin-x64.tar.gz'),
+              'darwin-arm64': checksum_for(f'{cdn_dir}/openclaw-{version}-darwin-arm64.tar.gz'),
+              'linux-x64':    checksum_for(f'{cdn_dir}/openclaw-{version}-linux-x64.tar.gz'),
+          }
+
+          print(f"CLI checksums: {cli_checksums}")
+          print(f"GUI checksums: {gui_checksums}")
 
           manifest_path = 'cdn-template/manifest.json'
           with open(manifest_path, 'r') as f:
@@ -346,12 +424,7 @@ jobs:
                       "darwin-arm64": f"openclaw-{version}-darwin-arm64.tar.gz",
                       "linux-x64":    f"openclaw-{version}-linux-x64.tar.gz"
                   },
-                  "checksums": {
-                      "win32-x64":    "sha256:REPLACE_WITH_ACTUAL",
-                      "darwin-x64":   "sha256:REPLACE_WITH_ACTUAL",
-                      "darwin-arm64": "sha256:REPLACE_WITH_ACTUAL",
-                      "linux-x64":    "sha256:REPLACE_WITH_ACTUAL"
-                  }
+                  "checksums": gui_checksums
               }
               versions.insert(0, new_entry)
               manifest['versions'] = versions
@@ -374,7 +447,8 @@ jobs:
                       "darwin-x64":   f"oclaw-{version}-darwin-x64.tar.gz",
                       "darwin-arm64": f"oclaw-{version}-darwin-arm64.tar.gz",
                       "linux-x64":    f"oclaw-{version}-linux-x64.tar.gz"
-                  }
+                  },
+                  "checksums": cli_checksums
               }
               cli_versions.insert(0, cli_entry)
               cli_manifest['versions'] = cli_versions
