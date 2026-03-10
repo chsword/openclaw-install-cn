@@ -54,4 +54,22 @@ contextBridge.exposeInMainWorld('oclaw', {
   logError: (message, stack) => {
     ipcRenderer.send('log-error', { message, stack });
   },
+
+  /**
+   * Read the application log file, returning parsed entries.
+   * @returns {Promise<{success, entries?, error?}>}
+   */
+  getLogs: () => ipcRenderer.invoke('get-logs'),
+
+  /**
+   * Clear the application log file.
+   * @returns {Promise<{success, error?}>}
+   */
+  clearLogs: () => ipcRenderer.invoke('clear-logs'),
+
+  /**
+   * Export the application log file via a save dialog.
+   * @returns {Promise<{success, canceled?, filePath?, error?}>}
+   */
+  exportLogs: () => ipcRenderer.invoke('export-logs'),
 });

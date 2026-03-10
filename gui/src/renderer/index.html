@@ -73,18 +73,48 @@
 
     <!-- Settings panel -->
     <section class="card settings-card" id="card-settings" style="display:none">
-      <h2 class="card-title">设置</h2>
-      <div class="form-row">
-        <label for="inp-cdn">CDN 地址</label>
-        <input type="text" id="inp-cdn" placeholder="https://your-cdn.example.com" />
+      <!-- Tab bar -->
+      <div class="settings-tabs">
+        <button class="tab-btn active" id="tab-btn-config">设置</button>
+        <button class="tab-btn" id="tab-btn-logs">日志</button>
       </div>
-      <div class="form-row">
-        <label for="inp-dir">安装目录</label>
-        <input type="text" id="inp-dir" placeholder="留空使用默认目录" />
+
+      <!-- Config tab -->
+      <div class="tab-pane" id="tab-config">
+        <div class="form-row">
+          <label for="inp-cdn">CDN 地址</label>
+          <input type="text" id="inp-cdn" placeholder="https://your-cdn.example.com" />
+        </div>
+        <div class="form-row">
+          <label for="inp-dir">安装目录</label>
+          <input type="text" id="inp-dir" placeholder="留空使用默认目录" />
+        </div>
+        <div class="settings-actions">
+          <button class="btn btn-primary" id="btn-save-settings">保存</button>
+          <button class="btn btn-ghost" id="btn-cancel-settings">取消</button>
+        </div>
       </div>
-      <div class="settings-actions">
-        <button class="btn btn-primary" id="btn-save-settings">保存</button>
-        <button class="btn btn-ghost" id="btn-cancel-settings">取消</button>
+
+      <!-- Logs tab -->
+      <div class="tab-pane" id="tab-logs" style="display:none">
+        <div class="log-toolbar">
+          <div class="log-filters">
+            <label><input type="checkbox" id="filter-info" checked> info</label>
+            <label><input type="checkbox" id="filter-warn" checked> warn</label>
+            <label><input type="checkbox" id="filter-error" checked> error</label>
+          </div>
+          <div class="log-actions">
+            <button class="btn btn-secondary btn-sm" id="btn-refresh-logs">刷新</button>
+            <button class="btn btn-secondary btn-sm" id="btn-export-logs">导出</button>
+            <button class="btn btn-ghost btn-sm" id="btn-clear-logs">清空</button>
+          </div>
+        </div>
+        <div class="log-viewer" id="log-viewer">
+          <div class="log-empty" id="log-empty">暂无日志</div>
+        </div>
+        <div class="settings-actions">
+          <button class="btn btn-ghost" id="btn-cancel-logs">关闭</button>
+        </div>
       </div>
     </section>
 
