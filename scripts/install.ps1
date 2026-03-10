@@ -29,6 +29,10 @@
 .PARAMETER NodeLtsVersion
   Specific Node.js version to install (e.g. "v20.19.1"). Leave empty to
   auto-detect the latest LTS from NodeMirror.
+.PARAMETER LogFile
+  Path to the installation log file. All messages are written here in addition
+  to the console. Defaults to a timestamped file in %TEMP%.
+  Can also be set via the OCLAW_LOG_FILE environment variable.
 .EXAMPLE
   irm https://your-cdn.example.com/install.ps1 | iex
   # Custom CDN + China Node mirror:
@@ -38,6 +42,10 @@
   # Offline local bundle:
   & ([scriptblock]::Create((Get-Content install.ps1 -Raw))) `
       -LocalBundle "C:\offline\openclaw-bundle"
+  # Custom log file + verbose output:
+  $env:OCLAW_LOG_FILE = "C:\logs\openclaw.log"
+  $env:OCLAW_VERBOSE  = "1"
+  irm https://your-cdn.example.com/install.ps1 | iex
 #>
 [CmdletBinding()]
 param(
@@ -46,18 +54,50 @@ param(
   [string]$InstallDir     = '',
   [string]$LocalBundle    = $(if ($env:OCLAW_LOCAL_BUNDLE)     { $env:OCLAW_LOCAL_BUNDLE }     else { '' }),
   [string]$NodeMirror     = $(if ($env:NODE_MIRROR)            { $env:NODE_MIRROR }            else { 'https://nodejs.org/dist' }),
-  [string]$NodeLtsVersion = $(if ($env:NODE_LTS_VERSION)       { $env:NODE_LTS_VERSION }       else { '' })
+  [string]$NodeLtsVersion = $(if ($env:NODE_LTS_VERSION)       { $env:NODE_LTS_VERSION }       else { '' }),
+  [string]$LogFile        = $(if ($env:OCLAW_LOG_FILE)         { $env:OCLAW_LOG_FILE }         else { Join-Path $env:TEMP "openclaw-install-$(Get-Date -Format 'yyyyMMdd-HHmmss').log" })
 )
 
 # ── Defaults ─────────────────────────────────────────────────────────────────
 if (-not $InstallDir) { $InstallDir = Join-Path $env:LOCALAPPDATA 'OpenClaw' }
 $OclawBinDir = Join-Path $env:LOCALAPPDATA 'oclaw\bin'
+$script:_logWarned = $false
+
+# ── Log file helpers ──────────────────────────────────────────────────────────
+function Write-Log {
+  param([string]$Level, [string]$Msg)
+  $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+  $line = "[$ts] [$Level] $Msg"
+  try {
+    Add-Content -Path $LogFile -Value $line -ErrorAction Stop
+  } catch {
+    # Log write failed – warn once, then suppress further logging to avoid noise.
+    if (-not $script:_logWarned) {
+      $script:_logWarned = $true
+      Write-Host "  [!] Warning: cannot write to log file: $LogFile (proceeding without logging)" -ForegroundColor Yellow
+    }
+  }
+}
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-function Write-Info    { param($Msg) Write-Host "  [i] $Msg" -ForegroundColor Cyan }
-function Write-Success { param($Msg) Write-Host "  [✔] $Msg" -ForegroundColor Green }
-function Write-Warn    { param($Msg) Write-Host "  [!] $Msg" -ForegroundColor Yellow }
-function Write-Fail    { param($Msg) Write-Host "  [✖] $Msg" -ForegroundColor Red; throw $Msg }
+function Write-Info    { param($Msg) Write-Host "  [i] $Msg" -ForegroundColor Cyan;   Write-Log 'INFO   ' $Msg }
+function Write-Success { param($Msg) Write-Host "  [✔] $Msg" -ForegroundColor Green;  Write-Log 'SUCCESS' $Msg }
+function Write-Warn    { param($Msg) Write-Host "  [!] $Msg" -ForegroundColor Yellow; Write-Log 'WARN   ' $Msg }
+function Write-Verbose-Log {
+  param($Msg)
+  Write-Log 'VERBOSE' $Msg
+  if ($env:OCLAW_VERBOSE) { Write-Host "    »  $Msg" -ForegroundColor DarkCyan }
+}
+function Write-Fail {
+  param($Msg)
+  Write-Host "  [✖] $Msg" -ForegroundColor Red
+  Write-Log 'ERROR  ' $Msg
+  Write-Host ""
+  if (-not $script:_logWarned) {
+    Write-Host "  Log file: $LogFile" -ForegroundColor Yellow
+  }
+  throw $Msg
+}
 
 function Get-RemoteString {
   param([string]$Url)
@@ -220,11 +260,26 @@ function Test-NodeJs {
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 function Main {
+  # Initialise log file
+  $null = New-Item -ItemType File -Path $LogFile -Force -ErrorAction SilentlyContinue
+  Write-Log 'INFO   ' '============================================================'
+  Write-Log 'INFO   ' 'OpenClaw Installer Bootstrap'
+  Write-Log 'INFO   ' "Date:        $(Get-Date)"
+  Write-Log 'INFO   ' "OS:          $([System.Environment]::OSVersion.VersionString)"
+  Write-Log 'INFO   ' "CDN:         $CdnBase"
+  Write-Log 'INFO   ' "Install dir: $InstallDir"
+  Write-Log 'INFO   ' "Bin dir:     $OclawBinDir"
+  Write-Log 'INFO   ' "Log file:    $LogFile"
+  if ($LocalBundle) { Write-Log 'INFO   ' "Local bundle: $LocalBundle" }
+  if ($env:OCLAW_VERBOSE) { Write-Log 'INFO   ' 'Verbose:     enabled' }
+  Write-Log 'INFO   ' '============================================================'
+
   Write-Host ""
   Write-Host "  ╔══════════════════════════════════════╗" -ForegroundColor Blue
   Write-Host "  ║    OpenClaw Installer Bootstrap      ║" -ForegroundColor Blue
   Write-Host "  ╚══════════════════════════════════════╝" -ForegroundColor Blue
   Write-Host ""
+  Write-Verbose-Log "Log file: $LogFile"
 
   if ($LocalBundle) {
     Install-FromLocalBundle
@@ -260,9 +315,11 @@ function Install-FromCdn {
   # an arm64-specific CLI package is unavailable.
   $arch = if ([System.Environment]::Is64BitOperatingSystem) { 'x64' } else { 'ia32' }
   if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { $arch = 'arm64' }
+  Write-Verbose-Log "Platform: win32-${arch}"
 
   $pkgName = "oclaw-${cliVer}-win32-${arch}.zip"
   $pkgUrl  = "$CdnBase/cli/$cliVer/$pkgName"
+  Write-Verbose-Log "CLI package URL: $pkgUrl"
 
   # ARM64: fall back to x64 if the arm64 package is unavailable
   if ($arch -eq 'arm64') {
@@ -273,11 +330,13 @@ function Install-FromCdn {
       $arch    = 'x64'
       $pkgName = "oclaw-${cliVer}-win32-x64.zip"
       $pkgUrl  = "$CdnBase/cli/$cliVer/$pkgName"
+      Write-Verbose-Log "Fallback CLI package URL: $pkgUrl"
     }
   }
 
   $tmpDir  = Join-Path $env:TEMP "oclaw-bootstrap"
   $pkgPath = Join-Path $tmpDir $pkgName
+  Write-Verbose-Log "Temporary directory: $tmpDir"
 
   if (-not (Test-Path $tmpDir)) {
     New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
@@ -315,6 +374,7 @@ function Install-FromCdn {
   Write-Host ""
   Write-Success "OpenClaw installed successfully!"
   Write-Host ""
+  Write-Verbose-Log "Installation log: $LogFile"
 
   # Add to system PATH permanently
   $currentPath = [System.Environment]::GetEnvironmentVariable('Path', 'User')
@@ -366,6 +426,7 @@ function Install-FromLocalBundle {
   # an arm64-specific CLI package is not present in the bundle.
   $arch = if ([System.Environment]::Is64BitOperatingSystem) { 'x64' } else { 'ia32' }
   if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { $arch = 'arm64' }
+  Write-Verbose-Log "Platform: win32-${arch}"
 
   # Read CLI version from local cli-manifest.json
   $cliManifestPath = Join-Path $bundle 'cli-manifest.json'
@@ -379,17 +440,20 @@ function Install-FromLocalBundle {
   # Locate CLI archive in bundle; fall back from arm64 to x64 if needed
   $cliPkgName = "oclaw-${cliVer}-win32-${arch}.zip"
   $cliPkgPath = Join-Path $bundle "cli\$cliVer\$cliPkgName"
+  Write-Verbose-Log "CLI package path: $cliPkgPath"
   if ($arch -eq 'arm64' -and -not (Test-Path $cliPkgPath)) {
     Write-Warn "arm64 CLI package not found in bundle, falling back to x64..."
     $arch       = 'x64'
     $cliPkgName = "oclaw-${cliVer}-win32-x64.zip"
     $cliPkgPath = Join-Path $bundle "cli\$cliVer\$cliPkgName"
+    Write-Verbose-Log "Fallback CLI package path: $cliPkgPath"
   }
   if (-not (Test-Path $cliPkgPath)) {
     Write-Fail "CLI package not found in bundle: $cliPkgPath"
   }
 
   $tmpDir = Join-Path $env:TEMP "oclaw-local-bootstrap"
+  Write-Verbose-Log "Temporary directory: $tmpDir"
   if (-not (Test-Path $tmpDir)) {
     New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
   }
@@ -415,6 +479,7 @@ function Install-FromLocalBundle {
   Write-Host ""
   Write-Success "OpenClaw installed successfully!"
   Write-Host ""
+  Write-Verbose-Log "Installation log: $LogFile"
 
   # Add to system PATH permanently
   $currentPath = [System.Environment]::GetEnvironmentVariable('Path', 'User')
@@ -437,5 +502,8 @@ try {
 } catch {
   Write-Host ""
   Write-Host "  Installation failed: $_" -ForegroundColor Red
+  if (-not $script:_logWarned) {
+    Write-Host "  Log file: $LogFile" -ForegroundColor Yellow
+  }
   exit 1
 }

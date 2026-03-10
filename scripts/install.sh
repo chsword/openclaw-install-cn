@@ -39,6 +39,16 @@
 #
 # When using nvm, set NVM_NODEJS_ORG_MIRROR instead:
 #   export NVM_NODEJS_ORG_MIRROR=https://npmmirror.com/mirrors/node
+#
+# ── Logging & diagnostics ─────────────────────────────────────
+# The installer always writes a timestamped log to a temporary file.
+# Override the path with OCLAW_LOG_FILE:
+#   export OCLAW_LOG_FILE=/var/log/openclaw-install.log
+#   bash install.sh
+#
+# Enable verbose console output (all details are always logged):
+#   export OCLAW_VERBOSE=1
+#   bash install.sh
 # ============================================================
 
 set -euo pipefail
@@ -61,17 +71,39 @@ NODE_MIRROR="${NODE_MIRROR:-https://nodejs.org/dist}"
 # Leave empty to auto-detect the latest LTS from NODE_MIRROR.
 NODE_LTS_VERSION="${NODE_LTS_VERSION:-}"
 
+# Log file for installation output. Override with OCLAW_LOG_FILE.
+# All messages (info/success/warn/error) are written here in addition to stdout/stderr.
+if [ -n "${OCLAW_LOG_FILE:-}" ]; then
+  LOG_FILE="$OCLAW_LOG_FILE"
+else
+  # Use mktemp for a uniquely-named, secure file that avoids /tmp symlink attacks.
+  LOG_FILE=$(mktemp /tmp/openclaw-install-XXXXXXXXXX.log 2>/dev/null \
+    || echo "/tmp/openclaw-install-$(date +%Y%m%d-%H%M%S)-$$.log")
+fi
+
+# Set OCLAW_VERBOSE=1 to print additional diagnostic details to the console.
+# All verbose messages are always written to the log file regardless of this setting.
+OCLAW_VERBOSE="${OCLAW_VERBOSE:-}"
+
 # ── Colour helpers ────────────────────────────────────────────────────────────
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
-info()    { echo -e "${CYAN}ℹ${NC}  $*"; }
-success() { echo -e "${GREEN}✔${NC}  $*"; }
-warn()    { echo -e "${YELLOW}⚠${NC}  $*"; }
-error()   { echo -e "${RED}✖${NC}  $*" >&2; }
-die()     { error "$*"; exit 1; }
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; DIM='\033[2m'; NC='\033[0m'
+
+# ── Logging helpers ───────────────────────────────────────────────────────────
+# Internal: write a timestamped line to the log file only.
+_log() { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$LOG_FILE" 2>/dev/null || true; }
+
+info()    { echo -e "${CYAN}ℹ${NC}  $*";              _log "[INFO]    $*"; }
+success() { echo -e "${GREEN}✔${NC}  $*";             _log "[SUCCESS] $*"; }
+warn()    { echo -e "${YELLOW}⚠${NC}  $*";            _log "[WARN]    $*"; }
+error()   { echo -e "${RED}✖${NC}  $*" >&2;           _log "[ERROR]   $*"; }
+# verbose: always written to the log file; printed to the console only when OCLAW_VERBOSE=1.
+verbose() { _log "[VERBOSE] $*"; [ -n "$OCLAW_VERBOSE" ] && echo -e "${DIM}  »  $*${NC}" || true; }
+die()     { error "$*"; [ "$LOG_FILE" != /dev/null ] && echo -e "  ${YELLOW}ℹ${NC}  Log file: $LOG_FILE" >&2; exit 1; }
 
 # ── Fetch helper (stdout) ─────────────────────────────────────────────────────
 # Usage: fetch <url>
 fetch() {
+  verbose "fetch: $1"
   if command -v curl &>/dev/null; then
     curl -fsSL --max-time 30 "$1"
   elif command -v wget &>/dev/null; then
@@ -84,6 +116,7 @@ fetch() {
 # ── Download helper (to file) ─────────────────────────────────────────────────
 download() {
   local url="$1" dest="$2"
+  verbose "download: $url -> $dest"
   if command -v curl &>/dev/null; then
     curl -fsSL --progress-bar -o "$dest" "$url"
   elif command -v wget &>/dev/null; then
@@ -267,11 +300,31 @@ Please upgrade manually from https://nodejs.org/ and re-run."
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 main() {
+  # Initialise log file
+  mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
+  if ! printf '' >> "$LOG_FILE" 2>/dev/null; then
+    echo -e "  ${YELLOW}⚠${NC}  Warning: cannot write to log file: $LOG_FILE (proceeding without logging)" >&2
+    LOG_FILE=/dev/null
+  fi
+  _log "============================================================"
+  _log "OpenClaw Installer Bootstrap"
+  _log "Date:        $(date)"
+  _log "OS:          $(uname -srm)"
+  _log "Shell:       ${SHELL:-unknown}"
+  _log "CDN:         $CDN_BASE"
+  _log "Install dir: $INSTALL_DIR"
+  _log "Bin dir:     $OCLAW_BIN_DIR"
+  _log "Log file:    $LOG_FILE"
+  [ -n "$OCLAW_LOCAL_BUNDLE" ] && _log "Local bundle: $OCLAW_LOCAL_BUNDLE"
+  [ -n "$OCLAW_VERBOSE" ]      && _log "Verbose:     enabled"
+  _log "============================================================"
+
   echo ""
   echo "  ╔══════════════════════════════════════╗"
   echo "  ║      OpenClaw Installer Bootstrap    ║"
   echo "  ╚══════════════════════════════════════╝"
   echo ""
+  verbose "Log file: $LOG_FILE"
 
   if [ -n "$OCLAW_LOCAL_BUNDLE" ]; then
     _install_from_local_bundle
@@ -297,6 +350,7 @@ _install_from_cdn() {
     arm64)   arch_name="arm64" ;;
     *)       warn "Unknown arch $arch_name, defaulting to x64"; arch_name="x64" ;;
   esac
+  verbose "Platform: ${os_name}-${arch_name}"
 
   # Resolve CLI version
   local cli_ver="$CLI_VERSION"
@@ -314,6 +368,8 @@ _install_from_cdn() {
   local pkg_name="oclaw-${cli_ver}-${os_name}-${arch_name}.tar.gz"
   local pkg_url="$CDN_BASE/cli/${cli_ver}/${pkg_name}"
   local pkg_path="$tmp_dir/$pkg_name"
+  verbose "CLI package URL: $pkg_url"
+  verbose "Temporary directory: $tmp_dir"
 
   info "Downloading oclaw CLI $cli_ver…"
   download "$pkg_url" "$pkg_path"
@@ -340,6 +396,7 @@ _install_from_cdn() {
   echo ""
   success "OpenClaw installed successfully!"
   echo ""
+  verbose "Installation log: $LOG_FILE"
 
   # PATH hint
   case ":${PATH}:" in
@@ -391,6 +448,7 @@ _install_from_local_bundle() {
     arm64)   arch_name="arm64" ;;
     *)       warn "Unknown arch $arch_name, defaulting to x64"; arch_name="x64" ;;
   esac
+  verbose "Platform: ${os_name}-${arch_name}"
 
   # Resolve CLI version from local cli-manifest.json
   local cli_manifest="$bundle/cli-manifest.json"
@@ -404,12 +462,14 @@ _install_from_local_bundle() {
   # Locate CLI archive in bundle
   local cli_pkg_name="oclaw-${cli_ver}-${os_name}-${arch_name}.tar.gz"
   local cli_pkg_path="$bundle/cli/${cli_ver}/${cli_pkg_name}"
+  verbose "CLI package path: $cli_pkg_path"
   [ -f "$cli_pkg_path" ] \
     || die "CLI package not found in bundle: $cli_pkg_path"
 
   local tmp_dir
   tmp_dir=$(mktemp -d)
   trap 'rm -rf "$tmp_dir"' EXIT
+  verbose "Temporary directory: $tmp_dir"
 
   info "Extracting oclaw CLI from local bundle…"
   tar -xzf "$cli_pkg_path" -C "$tmp_dir"
@@ -429,6 +489,7 @@ _install_from_local_bundle() {
   echo ""
   success "OpenClaw installed successfully!"
   echo ""
+  verbose "Installation log: $LOG_FILE"
 
   # PATH hint
   case ":${PATH}:" in
