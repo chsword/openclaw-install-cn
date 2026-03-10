@@ -9,6 +9,12 @@
         "darwin-x64":  "oclaw-1.0.0-darwin-x64.tar.gz",
         "darwin-arm64":"oclaw-1.0.0-darwin-arm64.tar.gz",
         "linux-x64":   "oclaw-1.0.0-linux-x64.tar.gz"
+      },
+      "checksums": {
+        "win32-x64":   "sha256:REPLACE_WITH_ACTUAL_CHECKSUM",
+        "darwin-x64":  "sha256:REPLACE_WITH_ACTUAL_CHECKSUM",
+        "darwin-arm64":"sha256:REPLACE_WITH_ACTUAL_CHECKSUM",
+        "linux-x64":   "sha256:REPLACE_WITH_ACTUAL_CHECKSUM"
       }
     }
   ]
