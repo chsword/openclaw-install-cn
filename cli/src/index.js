@@ -13,11 +13,20 @@
 
 const { program } = require('commander');
 const pkg = require('../package.json');
+const log = require('./lib/logger');
 
 program
   .name('oclaw')
   .description('OpenClaw installer and updater — downloads only from CDN, no npm/GitHub required')
-  .version(pkg.version, '-v, --version', 'display the oclaw CLI version');
+  .version(pkg.version, '-v, --version', 'display the oclaw CLI version')
+  .option('--verbose', 'enable verbose/debug output', false);
+
+// Enable verbose mode before any sub-command action runs.
+program.hook('preAction', () => {
+  if (program.opts().verbose) {
+    log.setVerbose(true);
+  }
+});
 
 // ── install ────────────────────────────────────────────────────────────────────
 program
