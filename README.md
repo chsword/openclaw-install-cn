@@ -38,7 +38,7 @@ OpenClaw 是一个开源、本地运行的 AI Agent 平台，支持 Windows / ma
 | **`scripts/`** | 一键引导脚本（`install.sh` / `install.ps1`），首次从 CDN 拉取 CLI 并完成安装 |
 | **`cdn-template/`** | CDN 目录结构模板和 manifest 格式说明，供运营者搭建私有 CDN 时参考 |
 
-所有 OpenClaw 安装包均从**您自己配置的 CDN**（如腾讯云 COS + CDN）下载，不访问 npm 或 GitHub。
+所有 OpenClaw 安装包均从**官方 CDN**（腾讯云 COS + CDN，https://oclaw.chatu.plus）下载，不访问 npm 或 GitHub。
 
 ---
 
@@ -49,15 +49,13 @@ OpenClaw 是一个开源、本地运行的 AI Agent 平台，支持 Windows / ma
 **macOS / Linux：**
 
 ```bash
-OCLAW_CDN=https://your-cdn.example.com \
-  curl -fsSL https://your-cdn.example.com/install.sh | bash
+curl -fsSL https://oclaw.chatu.plus/install.sh | bash
 ```
 
 **Windows（PowerShell）：**
 
 ```powershell
-$env:OCLAW_CDN = "https://your-cdn.example.com"
-irm https://your-cdn.example.com/install.ps1 | iex
+irm https://oclaw.chatu.plus/install.ps1 | iex
 ```
 
 ### 方法二：直接使用 CLI
@@ -68,9 +66,6 @@ irm https://your-cdn.example.com/install.ps1 | iex
 git clone https://github.com/chsword/openclaw-install-cn.git
 cd openclaw-install-cn/cli
 npm install
-
-# 配置 CDN 地址
-node bin/oclaw.js config --cdn-url https://your-cdn.example.com
 
 # 安装 OpenClaw
 node bin/oclaw.js install
@@ -107,7 +102,6 @@ status options:
   --check-updates     同时查询 CDN 上的最新版本
 
 config options:
-  --cdn-url <url>     设置 CDN 基础地址
   --dir <path>        设置安装目录
   --reset             重置为默认配置
 ```
@@ -140,7 +134,7 @@ npm start
 
 - 显示当前安装版本和最新版本
 - 一键安装 / 升级（含下载进度条）
-- 配置 CDN 地址和安装目录
+- 配置安装目录
 - 点击安装目录可直接在文件管理器中打开
 - 查看详细安装日志（支持按级别过滤、导出）
 

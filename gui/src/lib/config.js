@@ -13,7 +13,7 @@ const { getDefaultInstallDir } = require('./platform');
 const CONFIG_DIR = path.join(os.homedir(), '.oclaw');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
-const DEFAULT_CDN_BASE = 'https://openclaw-cdn.example.com';
+const DEFAULT_CDN_BASE = 'https://oclaw.chatu.plus';
 
 /**
  * @typedef {Object} OclawConfig

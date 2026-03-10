@@ -283,10 +283,12 @@ ipcMain.handle('install', async (_event, opts = {}) => {
   }
 });
 
-/** Update CDN configuration. */
+/** Update configuration (CDN base URL is fixed and cannot be overridden). */
 ipcMain.handle('set-config', async (_event, updates) => {
-  configLib.updateConfig(updates);
-  appendLog('info', 'main', `Configuration updated: ${Object.keys(updates).join(', ')}`);
+  // Strip cdnBase – the CDN URL is fixed and not user-configurable.
+  const { cdnBase: _cdnBase, ...safeUpdates } = updates || {};
+  configLib.updateConfig(safeUpdates);
+  appendLog('info', 'main', `Configuration updated: ${Object.keys(safeUpdates).join(', ')}`);
   return { success: true };
 });
 
