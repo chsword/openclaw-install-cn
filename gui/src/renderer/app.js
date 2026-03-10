@@ -17,10 +17,23 @@ const progressBar        = document.getElementById('progress-bar');
 const progressPct        = document.getElementById('progress-pct');
 
 const cardSettings       = document.getElementById('card-settings');
+const tabBtnConfig       = document.getElementById('tab-btn-config');
+const tabBtnLogs         = document.getElementById('tab-btn-logs');
+const tabConfig          = document.getElementById('tab-config');
+const tabLogs            = document.getElementById('tab-logs');
 const inpCdn             = document.getElementById('inp-cdn');
 const inpDir             = document.getElementById('inp-dir');
 const btnSaveSettings    = document.getElementById('btn-save-settings');
 const btnCancelSettings  = document.getElementById('btn-cancel-settings');
+const btnCancelLogs      = document.getElementById('btn-cancel-logs');
+const logViewer          = document.getElementById('log-viewer');
+const logEmpty           = document.getElementById('log-empty');
+const filterInfo         = document.getElementById('filter-info');
+const filterWarn         = document.getElementById('filter-warn');
+const filterError        = document.getElementById('filter-error');
+const btnRefreshLogs     = document.getElementById('btn-refresh-logs');
+const btnExportLogs      = document.getElementById('btn-export-logs');
+const btnClearLogs       = document.getElementById('btn-clear-logs');
 
 const messageArea        = document.getElementById('message-area');
 
@@ -28,6 +41,8 @@ const messageArea        = document.getElementById('message-area');
 let currentStatus = null;
 let latestVersion = null;
 let busy = false;
+let logEntries = [];
+let logRefreshTimer = null;
 
 /* ── Helpers ───────────────────────────────────────────────────────────────── */
 function showMessage(msg, type = 'info') {
@@ -146,10 +161,28 @@ async function doInstall() {
 }
 
 /* ── Settings panel ────────────────────────────────────────────────────────── */
+function switchSettingsTab(tab) {
+  if (tab === 'config') {
+    tabBtnConfig.classList.add('active');
+    tabBtnLogs.classList.remove('active');
+    tabConfig.style.display = '';
+    tabLogs.style.display = 'none';
+    stopLogAutoRefresh();
+  } else {
+    tabBtnConfig.classList.remove('active');
+    tabBtnLogs.classList.add('active');
+    tabConfig.style.display = 'none';
+    tabLogs.style.display = '';
+    loadLogs();
+    startLogAutoRefresh();
+  }
+}
+
 function openSettings() {
   if (!currentStatus) return;
   inpCdn.value = currentStatus.cdnBase || '';
   inpDir.value = currentStatus.installDir || '';
+  switchSettingsTab('config');
   cardSettings.style.display = 'block';
   cardProgress.style.display = 'none';
   hideMessage();
@@ -157,6 +190,7 @@ function openSettings() {
 
 function closeSettings() {
   cardSettings.style.display = 'none';
+  stopLogAutoRefresh();
 }
 
 async function saveSettings() {
@@ -167,6 +201,111 @@ async function saveSettings() {
   closeSettings();
   await loadStatus();
   showMessage('设置已保存。', 'success');
+}
+
+/* ── Log viewer ────────────────────────────────────────────────────────────── */
+function startLogAutoRefresh() {
+  stopLogAutoRefresh();
+  logRefreshTimer = setInterval(loadLogs, 5000);
+}
+
+function stopLogAutoRefresh() {
+  if (logRefreshTimer) {
+    clearInterval(logRefreshTimer);
+    logRefreshTimer = null;
+  }
+}
+
+async function loadLogs() {
+  const result = await window.oclaw.getLogs();
+  if (result.success) {
+    logEntries = result.entries;
+    renderLogs();
+  }
+}
+
+function renderLogs() {
+  const showInfo  = filterInfo.checked;
+  const showWarn  = filterWarn.checked;
+  const showError = filterError.checked;
+
+  const filtered = logEntries.filter((e) => {
+    if (e.level === 'info'  && !showInfo)  return false;
+    if (e.level === 'warn'  && !showWarn)  return false;
+    if (e.level === 'error' && !showError) return false;
+    return true;
+  });
+
+  // Remove existing entry elements (keep the log-empty placeholder)
+  Array.from(logViewer.querySelectorAll('.log-entry')).forEach((el) => el.remove());
+
+  if (filtered.length === 0) {
+    logEmpty.style.display = '';
+    return;
+  }
+
+  logEmpty.style.display = 'none';
+
+  // Render newest entries first
+  for (const entry of [...filtered].reverse()) {
+    const el = document.createElement('div');
+    el.className = `log-entry log-${entry.level}`;
+
+    const header = document.createElement('div');
+    header.className = 'log-entry-header';
+
+    const levelSpan = document.createElement('span');
+    levelSpan.className = 'log-level';
+    levelSpan.textContent = entry.level.toUpperCase();
+
+    const sourceSpan = document.createElement('span');
+    sourceSpan.className = 'log-source';
+    sourceSpan.textContent = `[${entry.source}]`;
+
+    const timeSpan = document.createElement('span');
+    timeSpan.className = 'log-time';
+    timeSpan.textContent = new Date(entry.timestamp).toLocaleString();
+
+    header.appendChild(levelSpan);
+    header.appendChild(sourceSpan);
+    header.appendChild(timeSpan);
+
+    const msg = document.createElement('div');
+    msg.className = 'log-message';
+    msg.textContent = entry.message;
+
+    el.appendChild(header);
+    el.appendChild(msg);
+
+    if (entry.stack) {
+      const stack = document.createElement('pre');
+      stack.className = 'log-stack';
+      stack.textContent = entry.stack;
+      el.appendChild(stack);
+    }
+
+    logViewer.insertBefore(el, logEmpty);
+  }
+}
+
+async function doExportLogs() {
+  const result = await window.oclaw.exportLogs();
+  if (result.success && !result.canceled) {
+    showMessage(`日志已导出至: ${result.filePath}`, 'success');
+  } else if (!result.success) {
+    showMessage(`导出失败: ${result.error}`, 'error');
+  }
+}
+
+async function doClearLogs() {
+  const result = await window.oclaw.clearLogs();
+  if (result.success) {
+    logEntries = [];
+    renderLogs();
+    showMessage('日志已清空。', 'success');
+  } else {
+    showMessage(`清空失败: ${result.error}`, 'error');
+  }
 }
 
 /* ── Event listeners ───────────────────────────────────────────────────────── */
@@ -180,6 +319,15 @@ btnCheck.addEventListener('click', async () => {
 btnSettings.addEventListener('click', openSettings);
 btnSaveSettings.addEventListener('click', saveSettings);
 btnCancelSettings.addEventListener('click', closeSettings);
+btnCancelLogs.addEventListener('click', closeSettings);
+tabBtnConfig.addEventListener('click', () => switchSettingsTab('config'));
+tabBtnLogs.addEventListener('click', () => switchSettingsTab('logs'));
+filterInfo.addEventListener('change', renderLogs);
+filterWarn.addEventListener('change', renderLogs);
+filterError.addEventListener('change', renderLogs);
+btnRefreshLogs.addEventListener('click', loadLogs);
+btnExportLogs.addEventListener('click', doExportLogs);
+btnClearLogs.addEventListener('click', doClearLogs);
 elInstallDir.addEventListener('click', () => {
   if (currentStatus && currentStatus.installed) {
     window.oclaw.openInstallDir();

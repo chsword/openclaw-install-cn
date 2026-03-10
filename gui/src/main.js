@@ -35,12 +35,13 @@ function getLogFilePath() {
 }
 
 /**
- * Append an error entry to the local log file.
- * @param {string} source - 'main' | 'renderer'
+ * Append a log entry to the local log file.
+ * @param {'info'|'warn'|'error'} level
+ * @param {string} source - e.g. 'main' | 'renderer'
  * @param {string} message
  * @param {string} [stack]
  */
-function appendErrorLog(source, message, stack) {
+function appendLog(level, source, message, stack) {
   try {
     const logFile = getLogFilePath();
     const logDir = path.dirname(logFile);
@@ -48,11 +49,53 @@ function appendErrorLog(source, message, stack) {
       fs.mkdirSync(logDir, { recursive: true });
     }
     const timestamp = new Date().toISOString();
-    const entry = `[${timestamp}] [${source}] ${message}${stack ? '\n' + stack : ''}\n`;
+    const entry = `[${timestamp}] [${level.toUpperCase()}] [${source}] ${message}${stack ? '\n' + stack : ''}\n`;
     fs.appendFileSync(logFile, entry, 'utf8');
   } catch {
     // Logging must never crash the app.
   }
+}
+
+/**
+ * Append an error entry to the local log file.
+ * @param {string} source - 'main' | 'renderer'
+ * @param {string} message
+ * @param {string} [stack]
+ */
+function appendErrorLog(source, message, stack) {
+  appendLog('error', source, message, stack);
+}
+
+/**
+ * Parse raw log file content into structured entries.
+ * Each entry matches the format:
+ *   [ISO_TIMESTAMP] [LEVEL] [SOURCE] message\noptional stack\n
+ * @param {string} content
+ * @returns {Array<{timestamp:string, level:string, source:string, message:string, stack:string}>}
+ */
+function parseLogEntries(content) {
+  const lines = content.split('\n');
+  const entries = [];
+  let current = null;
+  const headerRe = /^\[(\d{4}-\d{2}-\d{2}T[\d:.]+Z)\] \[(ERROR|WARN|INFO)\] \[([^\]]+)\] (.*)$/;
+
+  for (const line of lines) {
+    const match = line.match(headerRe);
+    if (match) {
+      if (current) entries.push(current);
+      current = {
+        timestamp: match[1],
+        level: match[2].toLowerCase(),
+        source: match[3],
+        message: match[4],
+        stack: '',
+      };
+    } else if (current && line.trim()) {
+      current.stack += (current.stack ? '\n' : '') + line;
+    }
+  }
+  if (current) entries.push(current);
+  return entries;
 }
 
 /**
@@ -172,6 +215,7 @@ ipcMain.handle('install', async (_event, opts = {}) => {
   }
 
   try {
+    appendLog('info', 'main', `Install started (platform=${platform}-${arch}, dir=${installDir})`);
     send('status', { message: 'Fetching version information…' });
     const versionInfo = await registryLib.getVersionInfo(cdnBase, opts.version);
     const version = versionInfo.version;
@@ -223,6 +267,7 @@ ipcMain.handle('install', async (_event, opts = {}) => {
     try { fs.unlinkSync(tmpFile); } catch {}
 
     configLib.updateConfig({ installedVersion: version, installDir });
+    appendLog('info', 'main', `OpenClaw ${version} installed successfully (dir=${installDir})`);
     send('status', { message: `OpenClaw ${version} installed successfully!` });
     return { success: true, version };
   } catch (err) {
@@ -234,6 +279,7 @@ ipcMain.handle('install', async (_event, opts = {}) => {
 /** Update CDN configuration. */
 ipcMain.handle('set-config', async (_event, updates) => {
   configLib.updateConfig(updates);
+  appendLog('info', 'main', `Configuration updated: ${Object.keys(updates).join(', ')}`);
   return { success: true };
 });
 
@@ -254,4 +300,57 @@ ipcMain.handle('open-install-dir', async () => {
 /** Receive renderer-side errors and persist them to the log file. */
 ipcMain.on('log-error', (_event, { message, stack } = {}) => {
   appendErrorLog('renderer', message || 'Unknown renderer error', stack);
+});
+
+/** Read the log file and return parsed entries. */
+ipcMain.handle('get-logs', async () => {
+  try {
+    const logFile = getLogFilePath();
+    if (!fs.existsSync(logFile)) {
+      return { success: true, entries: [] };
+    }
+    const content = fs.readFileSync(logFile, 'utf8');
+    return { success: true, entries: parseLogEntries(content) };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+/** Clear the log file. */
+ipcMain.handle('clear-logs', async () => {
+  try {
+    const logFile = getLogFilePath();
+    if (fs.existsSync(logFile)) {
+      fs.writeFileSync(logFile, '', 'utf8');
+    }
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+/** Export the log file via a save dialog. */
+ipcMain.handle('export-logs', async () => {
+  try {
+    const logFile = getLogFilePath();
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: '导出日志',
+      defaultPath: 'openclaw.log',
+      filters: [
+        { name: '日志文件', extensions: ['log'] },
+        { name: '文本文件', extensions: ['txt'] },
+      ],
+    });
+    if (result.canceled || !result.filePath) {
+      return { success: true, canceled: true };
+    }
+    if (fs.existsSync(logFile)) {
+      fs.copyFileSync(logFile, result.filePath);
+    } else {
+      fs.writeFileSync(result.filePath, '', 'utf8');
+    }
+    return { success: true, filePath: result.filePath };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
 });
