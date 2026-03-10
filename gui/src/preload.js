@@ -45,4 +45,13 @@ contextBridge.exposeInMainWorld('oclaw', {
   offInstallProgress: () => {
     ipcRenderer.removeAllListeners('install-progress');
   },
+
+  /**
+   * Send a renderer-side error to the main process for logging.
+   * @param {string} message
+   * @param {string} [stack]
+   */
+  logError: (message, stack) => {
+    ipcRenderer.send('log-error', { message, stack });
+  },
 });
