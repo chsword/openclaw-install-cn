@@ -19,6 +19,72 @@ const platformLib = require('./lib/platform');
 
 let mainWindow = null;
 
+// ── Error logging ─────────────────────────────────────────────────────────────
+
+/**
+ * Returns the path to the application log file.
+ * Falls back to os.tmpdir() if the app user-data path is not yet available.
+ * @returns {string}
+ */
+function getLogFilePath() {
+  try {
+    return path.join(app.getPath('logs'), 'error.log');
+  } catch {
+    return path.join(os.tmpdir(), 'openclaw-error.log');
+  }
+}
+
+/**
+ * Append an error entry to the local log file.
+ * @param {string} source - 'main' | 'renderer'
+ * @param {string} message
+ * @param {string} [stack]
+ */
+function appendErrorLog(source, message, stack) {
+  try {
+    const logFile = getLogFilePath();
+    const logDir = path.dirname(logFile);
+    if (!fs.existsSync(logDir)) {
+      fs.mkdirSync(logDir, { recursive: true });
+    }
+    const timestamp = new Date().toISOString();
+    const entry = `[${timestamp}] [${source}] ${message}${stack ? '\n' + stack : ''}\n`;
+    fs.appendFileSync(logFile, entry, 'utf8');
+  } catch {
+    // Logging must never crash the app.
+  }
+}
+
+/**
+ * Show a user-friendly error dialog and then quit the application.
+ * @param {string} message
+ */
+function showFatalErrorDialog(message) {
+  dialog.showMessageBoxSync({
+    type: 'error',
+    title: '应用程序错误',
+    message: '发生意外错误，应用程序需要关闭。',
+    detail: `${message}\n\n错误日志已保存至:\n${getLogFilePath()}`,
+    buttons: ['确定'],
+  });
+  app.exit(1);
+}
+
+// ── Global exception handlers ─────────────────────────────────────────────────
+
+process.on('uncaughtException', (err) => {
+  appendErrorLog('main', err.message, err.stack);
+  showFatalErrorDialog(err.message);
+});
+
+process.on('unhandledRejection', (reason) => {
+  const message = reason instanceof Error ? reason.message : String(reason);
+  const stack   = reason instanceof Error ? reason.stack  : undefined;
+  appendErrorLog('main', message, stack);
+  // Unhandled rejections are logged but do not force-quit the application,
+  // as they are often recoverable (e.g. failed network requests).
+});
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 720,
@@ -183,4 +249,9 @@ ipcMain.handle('open-install-dir', async () => {
       message: 'OpenClaw is not installed yet.',
     });
   }
+});
+
+/** Receive renderer-side errors and persist them to the log file. */
+ipcMain.on('log-error', (_event, { message, stack } = {}) => {
+  appendErrorLog('renderer', message || 'Unknown renderer error', stack);
 });
