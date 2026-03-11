@@ -26,7 +26,7 @@ on:
 jobs:
   # ── CLI Tests ──────────────────────────────────────────────────────────────
   test-cli:
-    name: Test CLI (${{ matrix.os }})
+    name: Test CLI (${{ matrix.os }}, node${{ matrix.node }})
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -34,7 +34,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        node: ['20']
+        node: ['18', '20', '22']
 
     steps:
       - name: Checkout
@@ -130,7 +130,7 @@ jobs:
   # exercise `oclaw install`, `oclaw upgrade`, `oclaw status`, `oclaw config`
   # by spawning real subprocesses on each runner OS.
   integration:
-    name: Integration tests (${{ matrix.os }})
+    name: Integration tests (${{ matrix.os }}, node${{ matrix.node }})
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -143,7 +143,9 @@ jobs:
           - windows-latest
           - macos-latest
         node:
+          - '18'
           - '20'
+          - '22'
 
     steps:
       - name: Checkout
