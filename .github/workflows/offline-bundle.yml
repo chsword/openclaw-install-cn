@@ -23,6 +23,11 @@ name: Build Offline Bundle
 # Triggered by:
 #   1. workflow_dispatch – manual run with optional version overrides
 #   2. workflow_run      – auto-runs after a successful release.yml run
+#
+# OpenClaw version source:
+#   When no openclaw_version override is given, the latest version from
+#   cdn-template/manifest.json (the latest version synced by sync-openclaw.yml)
+#   is used, so the offline bundle always matches what is already on the CDN.
 on:
   workflow_dispatch:
     inputs:
@@ -35,7 +40,7 @@ on:
       openclaw_version:
         description: >
           OpenClaw version to bundle (e.g. "2026.3.8").
-          Leave empty to auto-detect the latest release from openclaw/openclaw.
+          Leave empty to use the latest synced version from cdn-template/manifest.json.
         required: false
         default: ''
   schedule:
@@ -191,19 +196,24 @@ jobs:
 
       - name: Detect upstream OpenClaw version
         id: detect
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ -n "${{ inputs.openclaw_version }}" ]; then
             VERSION="${{ inputs.openclaw_version }}"
             VERSION="${VERSION#v}"
           else
-            TAG=$(curl -fsSL \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              https://api.github.com/repos/openclaw/openclaw/releases/latest \
-              | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'])")
-            VERSION="${TAG#v}"
+            # Use the latest synced version from cdn-template/manifest.json so that
+            # the offline bundle always matches what has already been synced to the CDN.
+            VERSION=$(python3 -c "
+import json, sys
+try:
+    m = json.load(open('cdn-template/manifest.json'))
+    v = m.get('latest', '')
+    if not v:
+        sys.exit('ERROR: cdn-template/manifest.json has no \"latest\" key – run sync-openclaw first.')
+    print(v)
+except FileNotFoundError:
+    sys.exit('ERROR: cdn-template/manifest.json not found – run sync-openclaw first.')
+")
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "OpenClaw version: $VERSION"
