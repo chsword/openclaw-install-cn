@@ -473,7 +473,6 @@ jobs:
             artifacts/cli/oclaw-darwin-x64
             artifacts/cli/oclaw-darwin-arm64
             artifacts/cli/oclaw-linux-x64
-            artifacts/gui/win/*.exe
             artifacts/gui/win/**/*.exe
             artifacts/gui/mac/*.dmg
             artifacts/gui/linux/*.AppImage

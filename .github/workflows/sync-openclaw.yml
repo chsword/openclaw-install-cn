@@ -70,10 +70,14 @@ jobs:
               entry = next((ve for ve in m.get('versions', []) if ve['version'] == '$VERSION'), None)
               if entry is None:
                   print('false')
-              elif any(v == 'sha256:UNAVAILABLE' for v in entry.get('checksums', {}).values()):
-                  # Previous sync was incomplete (files not built/uploaded) – retry
+              elif all(v == 'sha256:UNAVAILABLE' for v in entry.get('checksums', {}).values()):
+                  # Previous sync found no assets at all – retry in case upstream
+                  # added binaries since the last attempt.
                   print('false')
               else:
+                  # At least one platform was packaged; consider the sync done.
+                  # UNAVAILABLE entries mean the upstream release simply did not
+                  # ship that platform's binary (not a transient failure).
                   print('true')
           except Exception as e:
               sys.stderr.write(f'Warning: {e}\n')
@@ -173,30 +177,73 @@ jobs:
 
           V="$VERSION"
 
+          # Normalize upstream asset names that use OpenClaw's own conventions
+          # (e.g. "OpenClaw-2026.3.8-beta.1.dmg") to canonical names that the
+          # repackage candidates list below can match.
+          # macOS DMG: OpenClaw-{V}*.dmg  (universal binary; maps to both x64 and arm64)
+          for f in upstream-assets/OpenClaw-${V}*.dmg; do
+            [ -f "$f" ] || continue
+            CANON_DMG="openclaw-${V}-mac-universal.dmg"
+            cp "$f" "upstream-assets/${CANON_DMG}"
+            echo "  Normalized: $(basename "$f") → ${CANON_DMG}"
+            break
+          done
+          # macOS app zip: OpenClaw-{V}*.zip (exclude dSYM debug-symbol archives)
+          for f in upstream-assets/OpenClaw-${V}*.zip; do
+            [[ "$f" == *dSYM* ]] && continue
+            [ -f "$f" ] || continue
+            CANON_ZIP="openclaw-${V}-mac-universal.zip"
+            cp "$f" "upstream-assets/${CANON_ZIP}"
+            echo "  Normalized: $(basename "$f") → ${CANON_ZIP}"
+            break
+          done
+          # Windows installer/portable: try patterns in priority order; use the first match.
+          # OpenClaw-{V}*win*.exe is checked first; OpenClaw-{V}*Setup*.exe is a fallback.
+          for f in upstream-assets/OpenClaw-${V}*win*.exe upstream-assets/OpenClaw-${V}*Setup*.exe; do
+            [ -f "$f" ] || continue
+            CANON_WIN="openclaw-${V}-win32-x64.exe"
+            cp "$f" "upstream-assets/${CANON_WIN}"
+            echo "  Normalized: $(basename "$f") → ${CANON_WIN}"
+            break
+          done
+          # Linux AppImage: OpenClaw-{V}*.AppImage
+          for f in upstream-assets/OpenClaw-${V}*.AppImage; do
+            [ -f "$f" ] || continue
+            CANON_LX="openclaw-${V}-linux-x64.AppImage"
+            cp "$f" "upstream-assets/${CANON_LX}"
+            echo "  Normalized: $(basename "$f") → ${CANON_LX}"
+            break
+          done
+
           # Windows x64
           repackage "cdn-packages/openclaw-${V}-win32-x64.zip" \
             "openclaw-${V}-win32-x64.zip" \
             "openclaw-${V}-win-x64.zip" \
             "OpenClaw-${V}-win32-x64.zip" \
+            "openclaw-${V}-win32-x64.exe" \
             "openclaw-${V}-setup-x64.exe" \
             "openclaw-${V}-setup.exe" \
             "OpenClaw Setup ${V}.exe" || true
 
-          # macOS Intel (x64)
+          # macOS Intel (x64) – also accepts a universal binary
           repackage "cdn-packages/openclaw-${V}-darwin-x64.tar.gz" \
             "openclaw-${V}-darwin-x64.tar.gz" \
             "openclaw-${V}-mac-x64.tar.gz" \
             "openclaw-${V}-darwin-x64.dmg" \
             "openclaw-${V}-mac-x64.dmg" \
-            "openclaw-${V}-x64.dmg" || true
+            "openclaw-${V}-x64.dmg" \
+            "openclaw-${V}-mac-universal.dmg" \
+            "openclaw-${V}-mac-universal.zip" || true
 
-          # macOS Apple Silicon (arm64)
+          # macOS Apple Silicon (arm64) – also accepts a universal binary
           repackage "cdn-packages/openclaw-${V}-darwin-arm64.tar.gz" \
             "openclaw-${V}-darwin-arm64.tar.gz" \
             "openclaw-${V}-mac-arm64.tar.gz" \
             "openclaw-${V}-darwin-arm64.dmg" \
             "openclaw-${V}-mac-arm64.dmg" \
-            "openclaw-${V}-arm64.dmg" || true
+            "openclaw-${V}-arm64.dmg" \
+            "openclaw-${V}-mac-universal.dmg" \
+            "openclaw-${V}-mac-universal.zip" || true
 
           # Linux x64
           repackage "cdn-packages/openclaw-${V}-linux-x64.tar.gz" \
@@ -278,14 +325,22 @@ jobs:
       - name: Upload packages to COS
         if: steps.check.outputs.already_present != 'true'
         env:
-          VERSION: ${{ steps.detect.outputs.version }}
+          VERSION:   ${{ steps.detect.outputs.version }}
+          COS_BUCKET: ${{ secrets.BUCKET }}
+          COS_REGION: ${{ secrets.REGION }}
         run: |
+          # Skip COS upload if credentials are not configured.
+          if [ -z "${COS_BUCKET}" ] || [ -z "${COS_REGION}" ]; then
+            echo "::warning::COS credentials (BUCKET/REGION) are not configured – skipping CDN upload. manifest.json is still committed to the repository."
+            exit 0
+          fi
+
           pip install coscmd
           coscmd config \
             -a "${{ secrets.SECRETID }}" \
             -s "${{ secrets.SECRETKEY }}" \
-            -b "${{ secrets.BUCKET }}" \
-            -r "${{ secrets.REGION }}"
+            -b "${COS_BUCKET}" \
+            -r "${COS_REGION}"
 
           cos_upload_if_new() {
             local src="$1" dst="$2"
@@ -325,7 +380,15 @@ jobs:
         env:
           VERSION:    ${{ steps.detect.outputs.version }}
           CDN_DOMAIN: https://oclaw.chatu.plus
+          COS_BUCKET: ${{ secrets.BUCKET }}
+          COS_REGION: ${{ secrets.REGION }}
         run: |
+          # Skip CDN cache refresh if credentials are not configured.
+          if [ -z "${COS_BUCKET}" ] || [ -z "${COS_REGION}" ]; then
+            echo "::warning::COS credentials (BUCKET/REGION) are not configured – skipping CDN cache refresh."
+            exit 0
+          fi
+
           pip install tccli==3.1.48.1
           tccli configure set \
             secretId  "${{ secrets.SECRETID }}" \
