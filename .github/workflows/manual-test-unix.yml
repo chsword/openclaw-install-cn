@@ -22,6 +22,14 @@ name: Manual Test – macOS CLI (real CDN install & upgrade)
 
 on:
   workflow_dispatch:
+  # Run every Monday at 02:00 UTC to catch CDN regressions proactively.
+  schedule:
+    - cron: '0 2 * * 1'
+  # Also run automatically after each successful Release workflow.
+  workflow_run:
+    workflows: ["Release"]
+    types:
+      - completed
 
 jobs:
   # ── macOS real-CDN install & upgrade end-to-end test ─────────────────────
@@ -57,7 +65,15 @@ jobs:
         working-directory: cli
 
       # ── 3. Build CLI binary for macOS (x64) ─────────────────────────────────
+      - name: Cache built macOS CLI binary
+        uses: actions/cache@v4
+        id: cache-cli-binary
+        with:
+          path: cli/dist/oclaw-darwin-x64
+          key: ${{ runner.os }}-cli-binary-macos-x64-${{ hashFiles('cli/src/**/*', 'cli/package.json') }}
+
       - name: Build macOS CLI binary (x64)
+        if: steps.cache-cli-binary.outputs.cache-hit != 'true'
         run: npm run build:mac-x64
         working-directory: cli
 

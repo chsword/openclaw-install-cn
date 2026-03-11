@@ -24,6 +24,14 @@ name: Manual Test – Windows CLI (real CDN install & upgrade)
 
 on:
   workflow_dispatch:
+  # Run every Monday at 03:00 UTC to catch CDN regressions proactively.
+  schedule:
+    - cron: '0 3 * * 1'
+  # Also run automatically after each successful Release workflow.
+  workflow_run:
+    workflows: ["Release"]
+    types:
+      - completed
 
 jobs:
   # ── Windows real-CDN CLI test ─────────────────────────────────────────────
@@ -59,7 +67,15 @@ jobs:
         working-directory: cli
 
       # ── 3. Build Windows CLI binary ─────────────────────────────────────────
+      - name: Cache built Windows CLI binary
+        uses: actions/cache@v4
+        id: cache-cli-binary
+        with:
+          path: cli/dist/oclaw-win-x64.exe
+          key: ${{ runner.os }}-cli-binary-win-x64-${{ hashFiles('cli/src/**/*', 'cli/package.json') }}
+
       - name: Build Windows CLI binary
+        if: steps.cache-cli-binary.outputs.cache-hit != 'true'
         run: npm run build:win
         working-directory: cli
 
