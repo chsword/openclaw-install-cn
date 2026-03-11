@@ -34,6 +34,7 @@
 │        │              Linux AppImage)                                 │
 │        ├── Publish GitHub Release                                    │
 │        └── Upload cli/{installer-ver}/oclaw-* + cli-manifest ──┐    │
+               Upload gui/{installer-ver}/openclaw-gui-*  ──────┤   │
 │                                                                  │   │
 │  Daily schedule / workflow_dispatch                              │   │
 │       │                                                          │   │
@@ -58,6 +59,8 @@
                                          │    openclaw-*  ◄─── sync    │
                                          │  cli/{installer-ver}/       │
                                          │    oclaw-*  ◄──── release   │
+                                         │  gui/{installer-ver}/       │
+                                         │    openclaw-gui-* ◄─ rel.   │
                                          └────────────┬────────────────┘
                                                       │
                                                       ▼ CDN 加速
@@ -75,6 +78,7 @@
 | CDN 路径 | 版本含义 | 由谁管理 |
 |----------|----------|----------|
 | `cli/{ver}/oclaw-*` | 本安装工具的 Tag 版本（如 `0.2.3`） | `release.yml` |
+| `gui/{ver}/openclaw-gui-*` | 本安装工具的 GUI 离线安装包（如 `0.2.3`） | `release.yml` |
 | `{ver}/openclaw-*` | 上游 OpenClaw 应用版本（如 `2026.3.8`） | `sync-openclaw.yml` |
 
 开发者只需将更新合并到 `main` 分支，GitHub Actions 会自动从 `cli/package.json` 读取版本号、创建 Tag、构建所有平台安装包并上传到腾讯云 COS，无需手动操作。
@@ -143,7 +147,8 @@ Release 工作流的 `deploy-to-cos` 任务使用 GitHub Environments 中的 `Te
    - 更新 `cli-manifest.json` 中的版本清单及校验和（**不修改** `manifest.json`，后者由 `sync-openclaw.yml` 管理）
    - 创建 GitHub Release，上传所有构建产物
    - 将 CLI 安装包上传到 `cli/{installer-ver}/` 目录（腾讯云 COS，`TencentSecretId` 环境）
-   - 自动刷新 CDN 缓存（`cli-manifest.json`、安装脚本及本次发布的 CLI 包）
+   - 将 GUI 离线安装包（`.exe` / `.dmg` / `.AppImage`）上传到 `gui/{installer-ver}/` 目录（腾讯云 COS）
+   - 自动刷新 CDN 缓存（`cli-manifest.json`、安装脚本、本次发布的 CLI 包及 GUI 离线包）
 
 5. 在 [GitHub Releases 页面](https://github.com/chsword/openclaw-install-cn/releases) 确认发布成功。
 
@@ -256,12 +261,21 @@ oclaw status --check-updates
 │   ├── openclaw-1.0.0-darwin-arm64.tar.gz
 │   └── openclaw-1.0.0-linux-x64.tar.gz
 │
-└── cli/                        # oclaw CLI 二进制包目录
+├── cli/                        # oclaw CLI 二进制包目录
+│   ├── 1.0.0/
+│   │   ├── oclaw-1.0.0-win32-x64.zip
+│   │   ├── oclaw-1.0.0-darwin-x64.tar.gz
+│   │   ├── oclaw-1.0.0-darwin-arm64.tar.gz
+│   │   └── oclaw-1.0.0-linux-x64.tar.gz
+│   └── ...
+│
+└── gui/                        # GUI 离线安装包目录
     ├── 1.0.0/
-    │   ├── oclaw-1.0.0-win32-x64.zip
-    │   ├── oclaw-1.0.0-darwin-x64.tar.gz
-    │   ├── oclaw-1.0.0-darwin-arm64.tar.gz
-    │   └── oclaw-1.0.0-linux-x64.tar.gz
+    │   ├── openclaw-gui-setup-1.0.0-x64.exe      # Windows NSIS 安装向导
+    │   ├── openclaw-gui-1.0.0-win-x64.exe         # Windows 便携版
+    │   ├── openclaw-gui-1.0.0-mac-x64.dmg         # macOS Intel 磁盘映像
+    │   ├── openclaw-gui-1.0.0-mac-arm64.dmg       # macOS Apple Silicon 磁盘映像
+    │   └── openclaw-gui-1.0.0-linux-x64.AppImage  # Linux AppImage
     └── ...
 ```
 

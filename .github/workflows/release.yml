@@ -529,6 +529,24 @@ jobs:
           name: cdn-manifests
           path: cdn-template/
 
+      - name: Download Windows GUI artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: gui-win
+          path: artifacts/gui/win/
+
+      - name: Download macOS GUI artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: gui-mac
+          path: artifacts/gui/mac/
+
+      - name: Download Linux GUI artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: gui-linux
+          path: artifacts/gui/linux/
+
       - name: Install coscmd
         run: pip install coscmd
 
@@ -567,6 +585,23 @@ jobs:
           # Note: OpenClaw app packages ({openclaw-ver}/openclaw-*) are uploaded
           # independently by sync-openclaw.yml – not here.
 
+          # Upload GUI offline installer packages to gui/{VERSION}/ on COS.
+          # Windows: NSIS installer and portable exe (top-level only, skip win-unpacked/).
+          # macOS: DMG disk images (x64 and arm64).
+          # Linux: AppImage portable executable.
+          find artifacts/gui/win/ -maxdepth 1 -name "*.exe" | while read -r f; do
+            fname="$(basename "$f")"
+            cos_upload_if_new "$f" "gui/${VERSION}/${fname}"
+          done
+          find artifacts/gui/mac/ -name "*.dmg" | while read -r f; do
+            fname="$(basename "$f")"
+            cos_upload_if_new "$f" "gui/${VERSION}/${fname}"
+          done
+          find artifacts/gui/linux/ -name "*.AppImage" | while read -r f; do
+            fname="$(basename "$f")"
+            cos_upload_if_new "$f" "gui/${VERSION}/${fname}"
+          done
+
           # Upload install scripts and CLI manifest (always overwrite – these are not versioned).
           # manifest.json (openclaw app packages) is managed by sync-openclaw.yml – NOT uploaded here.
           coscmd upload scripts/install.sh  install.sh
@@ -586,7 +621,7 @@ jobs:
 
           # Build JSON array of URLs to purge.
           # Always purge overwritten files (cli-manifest + install scripts) and
-          # the versioned CLI packages uploaded in this release.
+          # the versioned CLI and GUI packages uploaded in this release.
           # manifest.json is NOT purged here – that is sync-openclaw.yml's job.
           URLS=$(python3 - <<'PYEOF'
           import json, os
@@ -600,6 +635,11 @@ jobs:
               base + '/cli/' + v + '/oclaw-' + v + '-darwin-x64.tar.gz',
               base + '/cli/' + v + '/oclaw-' + v + '-darwin-arm64.tar.gz',
               base + '/cli/' + v + '/oclaw-' + v + '-linux-x64.tar.gz',
+              base + '/gui/' + v + '/openclaw-gui-setup-' + v + '-x64.exe',
+              base + '/gui/' + v + '/openclaw-gui-' + v + '-win-x64.exe',
+              base + '/gui/' + v + '/openclaw-gui-' + v + '-mac-x64.dmg',
+              base + '/gui/' + v + '/openclaw-gui-' + v + '-mac-arm64.dmg',
+              base + '/gui/' + v + '/openclaw-gui-' + v + '-linux-x64.AppImage',
           ]))
           PYEOF
           )
