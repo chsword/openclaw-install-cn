@@ -347,17 +347,17 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             https://api.github.com/repos/openclaw/openclaw/releases/latest \
             | python3 -c "
-import sys, json
-try:
-    data = json.load(sys.stdin)
-    tag = data.get('tag_name', '')
-    if not tag:
-        raise ValueError('tag_name missing or empty in API response')
-    print(tag, end='')
-except Exception as e:
-    sys.stderr.write(f'WARNING: Could not determine OpenClaw version: {e}\n')
-    sys.exit(1)
-") || { echo "::warning::Could not fetch latest OpenClaw version from openclaw/openclaw; leaving version blank"; OPENCLAW_VERSION=""; }
+          import sys, json
+          try:
+              data = json.load(sys.stdin)
+              tag = data.get('tag_name', '')
+              if not tag:
+                  raise ValueError('tag_name missing or empty in API response')
+              print(tag, end='')
+          except Exception as e:
+              sys.stderr.write(f'WARNING: Could not determine OpenClaw version: {e}\n')
+              sys.exit(1)
+          ") || { echo "::warning::Could not fetch latest OpenClaw version from openclaw/openclaw; leaving version blank"; OPENCLAW_VERSION=""; }
           echo "openclaw_version=${OPENCLAW_VERSION}" >> "$GITHUB_OUTPUT"
           echo "Latest OpenClaw version: ${OPENCLAW_VERSION:-<unknown>}"
 
