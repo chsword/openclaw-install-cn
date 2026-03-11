@@ -28,13 +28,13 @@ on:
   workflow_dispatch:
     inputs:
       openclaw_initial_version:
-        description: 'Initial mock OpenClaw app version to install (e.g. 9.9.0)'
+        description: 'Initial mock OpenClaw app version to install (e.g. 2026.3.8) – must be a date-based OpenClaw version, NOT the CLI version'
         required: false
-        default: '9.9.0'
+        default: '2026.3.8'
       openclaw_upgrade_version:
-        description: 'Upgraded mock OpenClaw app version (e.g. 9.9.1)'
+        description: 'Upgraded mock OpenClaw app version (e.g. 2026.3.9) – must be a date-based OpenClaw version, NOT the CLI version'
         required: false
-        default: '9.9.1'
+        default: '2026.3.9'
 
 jobs:
   # ── Windows offline install & upgrade end-to-end test ─────────────────────
@@ -268,11 +268,15 @@ jobs:
           Write-Host "✔ oclaw CLI version is correct: $ver"
 
       # ── 8. Verify oclaw status shows the installed OpenClaw app version ───────
+      # SUCCESS CRITERION: installedVersion must be the OpenClaw APP version
+      # (e.g. '2026.3.8'), NOT the oclaw CLI version (e.g. '1.0.3').
+      # Using the CLI version as a success criterion would be INCORRECT.
       - name: Verify oclaw status (initial install)
         shell: pwsh
         env:
-          INSTALL_DIR:     ${{ runner.temp }}\openclaw-app
+          INSTALL_DIR:          ${{ runner.temp }}\openclaw-app
           EXPECTED_APP_VERSION: ${{ inputs.openclaw_initial_version }}
+          CLI_VERSION:          ${{ steps.cli_ver.outputs.version }}
         run: |
           $oclawBin = Join-Path $env:LOCALAPPDATA 'oclaw\bin\oclaw.exe'
 
@@ -288,11 +292,24 @@ jobs:
             Write-Error "oclaw status reports OpenClaw is NOT installed!"
             exit 1
           }
+
+          # ── Correct success criterion: OpenClaw APP version ──────────────────
+          # installedVersion must match the expected OpenClaw app version.
           if ($status.installedVersion -ne $env:EXPECTED_APP_VERSION) {
             Write-Error "Expected installed version $($env:EXPECTED_APP_VERSION) but got: $($status.installedVersion)"
             exit 1
           }
-          Write-Host "✔ OpenClaw $($status.installedVersion) is installed at $($status.installDir)"
+          Write-Host "  ✔ CORRECT: installedVersion = '$($status.installedVersion)' (OpenClaw app version)"
+
+          # ── Guard against incorrect success criterion: CLI version ────────────
+          # If installedVersion equals the CLI version, the install wrote the
+          # wrong version marker – this would be a bug, not success.
+          if ($status.installedVersion -eq $env:CLI_VERSION) {
+            Write-Error "INCORRECT: installedVersion '$($status.installedVersion)' matches the CLI version – success must be based on the OpenClaw app version, not the CLI version"
+            exit 1
+          }
+          Write-Host "  ✔ CORRECT: installedVersion '$($status.installedVersion)' is distinct from CLI version '$($env:CLI_VERSION)'"
+          Write-Host "  ✔ OpenClaw $($status.installedVersion) is installed at $($status.installDir)"
 
       # ── 9. Verify mock openclaw command exists in install dir ─────────────────
       - name: Verify openclaw command in install directory
@@ -344,11 +361,14 @@ jobs:
           Write-Host "✔ Upgrade command completed successfully"
 
       # ── 11. Verify version after upgrade ────────────────────────────────────
+      # SUCCESS CRITERION: installedVersion must reflect the new OpenClaw APP
+      # version after upgrade, NOT the CLI version.
       - name: Verify oclaw status (after upgrade)
         shell: pwsh
         env:
           INSTALL_DIR:          ${{ runner.temp }}\openclaw-app
           EXPECTED_APP_VERSION: ${{ inputs.openclaw_upgrade_version }}
+          CLI_VERSION:          ${{ steps.cli_ver.outputs.version }}
         run: |
           $oclawBin = Join-Path $env:LOCALAPPDATA 'oclaw\bin\oclaw.exe'
 
@@ -362,11 +382,21 @@ jobs:
             Write-Error "oclaw status reports OpenClaw is NOT installed after upgrade!"
             exit 1
           }
+
+          # ── Correct success criterion: OpenClaw APP version ──────────────────
           if ($status.installedVersion -ne $env:EXPECTED_APP_VERSION) {
             Write-Error "Expected upgraded version $($env:EXPECTED_APP_VERSION) but got: $($status.installedVersion)"
             exit 1
           }
-          Write-Host "✔ OpenClaw successfully upgraded to $($status.installedVersion)"
+          Write-Host "  ✔ CORRECT: installedVersion = '$($status.installedVersion)' (OpenClaw app version after upgrade)"
+
+          # ── Guard against incorrect success criterion: CLI version ────────────
+          if ($status.installedVersion -eq $env:CLI_VERSION) {
+            Write-Error "INCORRECT: installedVersion '$($status.installedVersion)' matches the CLI version – success must be based on the OpenClaw app version, not the CLI version"
+            exit 1
+          }
+          Write-Host "  ✔ CORRECT: installedVersion '$($status.installedVersion)' is distinct from CLI version '$($env:CLI_VERSION)'"
+          Write-Host "  ✔ OpenClaw successfully upgraded to $($status.installedVersion)"
 
       # ── 12. Verify openclaw command reports upgraded version ─────────────────
       - name: Verify openclaw command after upgrade
@@ -405,9 +435,14 @@ jobs:
           Write-Host "  ║  All offline Windows CLI tests passed!           ║" -ForegroundColor Green
           Write-Host "  ╚══════════════════════════════════════════════════╝" -ForegroundColor Green
           Write-Host ""
-          Write-Host "  oclaw CLI version  : $env:CLI_VERSION"      -ForegroundColor Cyan
-          Write-Host "  OpenClaw installed : $env:APP_INITIAL_VERSION" -ForegroundColor Cyan
-          Write-Host "  OpenClaw upgraded  : $env:APP_UPGRADE_VERSION"  -ForegroundColor Cyan
+          Write-Host "  SUCCESS CRITERION (OpenClaw app version):" -ForegroundColor Green
+          Write-Host "    ✔ OpenClaw installed : $env:APP_INITIAL_VERSION  ← CORRECT (app version)" -ForegroundColor Green
+          Write-Host "    ✔ OpenClaw upgraded  : $env:APP_UPGRADE_VERSION   ← CORRECT (app version)" -ForegroundColor Green
+          Write-Host ""
+          Write-Host "  oclaw CLI version  : $env:CLI_VERSION  (secondary – CLI binary check only)" -ForegroundColor Cyan
+          Write-Host ""
+          Write-Host "  NOTE: '$env:APP_INITIAL_VERSION' is the correct success criterion." -ForegroundColor Yellow
+          Write-Host "        '$env:CLI_VERSION' (CLI version) would be INCORRECT as a success criterion." -ForegroundColor Yellow
           Write-Host ""
           Write-Host "  Tests ran in fully offline mode (CdnBase = http://oclaw-unreachable.invalid)" -ForegroundColor Yellow
 

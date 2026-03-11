@@ -28,13 +28,13 @@ on:
   workflow_dispatch:
     inputs:
       openclaw_initial_version:
-        description: 'Initial mock OpenClaw app version to install (e.g. 9.9.0)'
+        description: 'Initial mock OpenClaw app version to install (e.g. 2026.3.8) – must be a date-based OpenClaw version, NOT the CLI version'
         required: false
-        default: '9.9.0'
+        default: '2026.3.8'
       openclaw_upgrade_version:
-        description: 'Upgraded mock OpenClaw app version (e.g. 9.9.1)'
+        description: 'Upgraded mock OpenClaw app version (e.g. 2026.3.9) – must be a date-based OpenClaw version, NOT the CLI version'
         required: false
-        default: '9.9.1'
+        default: '2026.3.9'
 
 jobs:
   # ── Linux / macOS offline install & upgrade end-to-end test ───────────────
@@ -291,11 +291,15 @@ jobs:
           echo "✔ oclaw CLI version is correct: $VER"
 
       # ── 9. Verify oclaw status shows the installed OpenClaw app version ───────
+      # SUCCESS CRITERION: installedVersion must be the OpenClaw APP version
+      # (e.g. '2026.3.8'), NOT the oclaw CLI version (e.g. '1.0.3').
+      # Using the CLI version as a success criterion would be INCORRECT.
       - name: Verify oclaw status (initial install)
         env:
           OCLAW_INSTALL_DIR: ${{ runner.temp }}/openclaw-app
           OCLAW_BIN_DIR: ${{ runner.temp }}/oclaw-bin
           EXPECTED_APP_VERSION: ${{ inputs.openclaw_initial_version }}
+          CLI_VERSION: ${{ steps.cli_ver.outputs.version }}
         run: |
           OCLAW_BIN="$OCLAW_BIN_DIR/oclaw"
 
@@ -310,11 +314,24 @@ jobs:
             echo "::error::oclaw status reports OpenClaw is NOT installed!"
             exit 1
           fi
+
+          # ── Correct success criterion: OpenClaw APP version ──────────────────
+          # installedVersion must match the expected OpenClaw app version.
           if [ "$INSTALLED_VER" != "$EXPECTED_APP_VERSION" ]; then
             echo "::error::Expected installed version $EXPECTED_APP_VERSION but got: $INSTALLED_VER"
             exit 1
           fi
-          echo "✔ OpenClaw $INSTALLED_VER is installed"
+          echo "  ✔ CORRECT: installedVersion = '$INSTALLED_VER' (OpenClaw app version)"
+
+          # ── Guard against incorrect success criterion: CLI version ────────────
+          # If installedVersion equals the CLI version, the install wrote the
+          # wrong version marker – this would be a bug, not success.
+          if [ "$INSTALLED_VER" = "$CLI_VERSION" ]; then
+            echo "::error::INCORRECT: installedVersion '$INSTALLED_VER' matches the CLI version – success must be based on the OpenClaw app version, not the CLI version"
+            exit 1
+          fi
+          echo "  ✔ CORRECT: installedVersion '$INSTALLED_VER' is distinct from CLI version '$CLI_VERSION'"
+          echo "  ✔ OpenClaw $INSTALLED_VER is installed"
 
       # ── 10. Verify mock openclaw command exists in install dir ──────────────
       - name: Verify openclaw command in install directory
@@ -359,11 +376,14 @@ jobs:
           echo "✔ Upgrade command completed successfully"
 
       # ── 12. Verify version after upgrade ───────────────────────────────────
+      # SUCCESS CRITERION: installedVersion must reflect the new OpenClaw APP
+      # version after upgrade, NOT the CLI version.
       - name: Verify oclaw status (after upgrade)
         env:
           OCLAW_INSTALL_DIR: ${{ runner.temp }}/openclaw-app
           OCLAW_BIN_DIR: ${{ runner.temp }}/oclaw-bin
           EXPECTED_APP_VERSION: ${{ inputs.openclaw_upgrade_version }}
+          CLI_VERSION: ${{ steps.cli_ver.outputs.version }}
         run: |
           OCLAW_BIN="$OCLAW_BIN_DIR/oclaw"
 
@@ -378,11 +398,21 @@ jobs:
             echo "::error::oclaw status reports OpenClaw is NOT installed after upgrade!"
             exit 1
           fi
+
+          # ── Correct success criterion: OpenClaw APP version ──────────────────
           if [ "$INSTALLED_VER" != "$EXPECTED_APP_VERSION" ]; then
             echo "::error::Expected upgraded version $EXPECTED_APP_VERSION but got: $INSTALLED_VER"
             exit 1
           fi
-          echo "✔ OpenClaw successfully upgraded to $INSTALLED_VER"
+          echo "  ✔ CORRECT: installedVersion = '$INSTALLED_VER' (OpenClaw app version after upgrade)"
+
+          # ── Guard against incorrect success criterion: CLI version ────────────
+          if [ "$INSTALLED_VER" = "$CLI_VERSION" ]; then
+            echo "::error::INCORRECT: installedVersion '$INSTALLED_VER' matches the CLI version – success must be based on the OpenClaw app version, not the CLI version"
+            exit 1
+          fi
+          echo "  ✔ CORRECT: installedVersion '$INSTALLED_VER' is distinct from CLI version '$CLI_VERSION'"
+          echo "  ✔ OpenClaw successfully upgraded to $INSTALLED_VER"
 
       # ── 13. Verify openclaw command reports upgraded version ─────────────────
       - name: Verify openclaw command after upgrade
@@ -417,9 +447,14 @@ jobs:
           echo ""
           echo "  ✔ All offline ${{ matrix.os }} CLI tests passed!"
           echo ""
-          echo "  oclaw CLI version  : $CLI_VERSION"
-          echo "  OpenClaw installed : $APP_INITIAL_VERSION"
-          echo "  OpenClaw upgraded  : $APP_UPGRADE_VERSION"
+          echo "  SUCCESS CRITERION (OpenClaw app version):"
+          echo "    ✔ OpenClaw installed : $APP_INITIAL_VERSION  ← CORRECT (app version)"
+          echo "    ✔ OpenClaw upgraded  : $APP_UPGRADE_VERSION   ← CORRECT (app version)"
+          echo ""
+          echo "  oclaw CLI version  : $CLI_VERSION  (secondary – CLI binary check only)"
+          echo ""
+          echo "  NOTE: '$APP_INITIAL_VERSION' is the correct success criterion."
+          echo "        '$CLI_VERSION' (CLI version) would be INCORRECT as a success criterion."
           echo ""
           echo "  Tests ran in fully offline mode (OCLAW_CDN = http://oclaw-unreachable.invalid)"
 
