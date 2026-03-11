@@ -497,7 +497,6 @@ except Exception as e:
         with:
           name: cdn-manifests
           path: |
-            cdn-template/manifest.json
             cdn-template/cli-manifest.json
           retention-days: 1
 
@@ -568,10 +567,10 @@ except Exception as e:
           # Note: OpenClaw app packages ({openclaw-ver}/openclaw-*) are uploaded
           # independently by sync-openclaw.yml – not here.
 
-          # Upload install scripts and manifests (always overwrite – these are not versioned)
+          # Upload install scripts and CLI manifest (always overwrite – these are not versioned).
+          # manifest.json (openclaw app packages) is managed by sync-openclaw.yml – NOT uploaded here.
           coscmd upload scripts/install.sh  install.sh
           coscmd upload scripts/install.ps1 install.ps1
-          coscmd upload cdn-template/manifest.json     manifest.json
           coscmd upload cdn-template/cli-manifest.json cli-manifest.json
 
       - name: Refresh CDN cache
@@ -586,14 +585,14 @@ except Exception as e:
             region    "ap-guangzhou"
 
           # Build JSON array of URLs to purge.
-          # Always purge overwritten files (manifests + install scripts) and
+          # Always purge overwritten files (cli-manifest + install scripts) and
           # the versioned CLI packages uploaded in this release.
+          # manifest.json is NOT purged here – that is sync-openclaw.yml's job.
           URLS=$(python3 - <<'PYEOF'
           import json, os
           base = os.environ['CDN_DOMAIN']
           v    = os.environ['VERSION']
           print(json.dumps([
-              base + '/manifest.json',
               base + '/cli-manifest.json',
               base + '/install.sh',
               base + '/install.ps1',
