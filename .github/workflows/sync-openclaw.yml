@@ -33,7 +33,7 @@ jobs:
     environment: TencentSecretId
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       # ── 1. Resolve target upstream version ────────────────────────────────
       - name: Detect upstream OpenClaw version
