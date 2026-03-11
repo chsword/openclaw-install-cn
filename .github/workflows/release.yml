@@ -554,8 +554,8 @@ jobs:
           coscmd config \
             -a "${{ secrets.SECRETID }}" \
             -s "${{ secrets.SECRETKEY }}" \
-            -b "${{ secrets.BUCKET }}" \
-            -r "${{ secrets.REGION }}"
+            -b "${{ vars.BUCKET }}" \
+            -r "${{ vars.REGION }}"
 
       - name: Upload packages to COS
         run: |
