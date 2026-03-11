@@ -208,7 +208,15 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "OpenClaw version: $VERSION"
 
+      - name: Cache upstream OpenClaw assets
+        uses: actions/cache@v4
+        id: cache-openclaw-assets
+        with:
+          path: upstream-assets/
+          key: openclaw-upstream-${{ steps.detect.outputs.version }}
+
       - name: Download upstream release assets
+        if: steps.cache-openclaw-assets.outputs.cache-hit != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG:      v${{ steps.detect.outputs.version }}
@@ -255,6 +263,7 @@ jobs:
         env:
           VERSION: ${{ steps.detect.outputs.version }}
         run: |
+          mkdir -p openclaw-packages
           # Helper: find the first matching candidate and convert to CDN target format.
           repackage() {
             local dst="$1"; shift

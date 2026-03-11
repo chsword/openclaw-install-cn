@@ -8,6 +8,11 @@ updates:
     labels:
       - "dependencies"
       - "cli"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    assignees:
+      - "chsword"
 
   # GUI npm dependencies
   - package-ecosystem: "npm"
@@ -17,6 +22,11 @@ updates:
     labels:
       - "dependencies"
       - "gui"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    assignees:
+      - "chsword"
 
   # GitHub Actions
   - package-ecosystem: "github-actions"
@@ -26,3 +36,8 @@ updates:
     labels:
       - "dependencies"
       - "ci/cd"
+    commit-message:
+      prefix: "chore(ci)"
+      include: "scope"
+    assignees:
+      - "chsword"

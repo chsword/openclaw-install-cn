@@ -34,7 +34,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        node: ['18', '20', '22', '24']
+        node: ['18', '20', '24']
 
     steps:
       - name: Checkout
@@ -72,7 +72,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['18', '20', '22', '24']
+        node: ['18', '20', '24']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -153,7 +153,6 @@ jobs:
         node:
           - '18'
           - '20'
-          - '22'
           - '24'
 
     steps:
@@ -437,7 +436,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        node: ['18', '20', '22', '24']
+        node: ['18', '20', '24']
 
     steps:
       - name: Checkout
@@ -452,10 +451,42 @@ jobs:
         run: npm test
         working-directory: gui
 
+  # ── Security: npm audit ───────────────────────────────────────────────────
+  audit:
+    name: Security audit (npm audit)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: cli/package-lock.json
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        id: cache-audit-node-modules
+        with:
+          path: cli/node_modules
+          key: ${{ runner.os }}-node20-cli-node-modules-${{ hashFiles('cli/package-lock.json') }}
+
+      - name: Install CLI dependencies
+        if: steps.cache-audit-node-modules.outputs.cache-hit != 'true'
+        run: npm ci
+        working-directory: cli
+
+      - name: Audit CLI dependencies
+        run: npm audit --audit-level=high
+        working-directory: cli
+
   # ── Auto-tag on main branch (triggers release.yml) ───────────────────────
   auto-tag:
     name: Auto-tag release
-    needs: [test-cli, lint-cli, build-check-cli, test-gui]
+    needs: [test-cli, lint-cli, build-check-cli, test-gui, audit]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
