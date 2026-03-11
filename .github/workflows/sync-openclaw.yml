@@ -326,8 +326,8 @@ jobs:
         if: steps.check.outputs.already_present != 'true'
         env:
           VERSION:   ${{ steps.detect.outputs.version }}
-          COS_BUCKET: ${{ secrets.BUCKET }}
-          COS_REGION: ${{ secrets.REGION }}
+          COS_BUCKET: ${{ vars.BUCKET }}
+          COS_REGION: ${{ vars.REGION }}
         run: |
           # Skip COS upload if credentials are not configured.
           if [ -z "${COS_BUCKET}" ] || [ -z "${COS_REGION}" ]; then
@@ -380,8 +380,8 @@ jobs:
         env:
           VERSION:    ${{ steps.detect.outputs.version }}
           CDN_DOMAIN: https://oclaw.chatu.plus
-          COS_BUCKET: ${{ secrets.BUCKET }}
-          COS_REGION: ${{ secrets.REGION }}
+          COS_BUCKET: ${{ vars.BUCKET }}
+          COS_REGION: ${{ vars.REGION }}
         run: |
           # Skip CDN cache refresh if credentials are not configured.
           if [ -z "${COS_BUCKET}" ] || [ -z "${COS_REGION}" ]; then
