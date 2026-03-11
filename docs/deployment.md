@@ -20,10 +20,18 @@
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                        GitHub Actions                        │
-│   Tag Push (v*.*.*)                                         │
-│        │                                                     │
+│                                                             │
+│  Push to main ──► ci.yml                                    │
+│       │  (auto-tag from cli/package.json version)           │
+│       │                                                     │
+│       ▼                                                     │
+│  Tag Push (v*.*.*)  ──────────────────────────────────►     │
+│                             release.yml                     │
+│                               │                             │
+│        ┌──────────────────────┤                             │
 │        ├── Build CLI binaries (Linux/Windows/macOS/arm64)   │
-│        ├── Build Windows GUI (NSIS + Portable)              │
+│        ├── Build GUI (Windows NSIS/Portable, macOS DMG,     │
+│        │              Linux AppImage)                       │
 │        ├── Publish GitHub Release                           │
 │        └── Upload to Tencent COS ──────────────────────┐   │
 └────────────────────────────────────────────────────────│───┘
@@ -37,8 +45,8 @@
                                         │  cli-manifest.json          │
                                         │  install.sh                 │
                                         │  install.ps1                │
-                                        │  1.0.0/openclaw-*.zip/.tgz  │
-                                        │  cli/1.0.0/oclaw-*          │
+                                        │  {ver}/openclaw-*.zip/.tgz  │
+                                        │  cli/{ver}/oclaw-*          │
                                         └────────────┬────────────────┘
                                                      │
                                                      ▼ CDN 加速
@@ -51,7 +59,7 @@
                                         └─────────────────────────────┘
 ```
 
-每次推送版本 Tag，GitHub Actions 会自动构建所有平台的安装包并上传到腾讯云 COS，用户无需手动操作。
+开发者只需将更新合并到 `main` 分支，GitHub Actions 会自动从 `cli/package.json` 读取版本号、创建 Tag、构建所有平台安装包并上传到腾讯云 COS，无需手动操作。
 
 ---
 
@@ -88,35 +96,62 @@ Release 工作流的 `deploy-to-cos` 任务使用 GitHub Environments 中的 `Te
 
 ### 自动发布流程
 
-1. 确保代码已合并到 `main` 分支
-2. 在本地创建并推送版本 Tag：
+发布新版本只需更新版本号并推送到 `main` 分支，CI 会自动完成全部后续工作：
+
+1. 修改 `cli/package.json` 中的 `version` 字段：
 
    ```bash
-   git checkout main
-   git pull origin main
-
-   # 打 Tag（遵循 semver 格式）
-   git tag v1.2.3
-   git push origin v1.2.3
+   cd cli
+   npm version patch   # 或 minor / major / 任意版本号
+   # 这会自动更新 package.json，无需手动推送 Tag
    ```
 
-3. GitHub Actions 将自动：
-   - 运行所有测试
+2. 将变更合并（或直接推送）到 `main` 分支：
+
+   ```bash
+   git add cli/package.json
+   git commit -m "chore: bump version to x.y.z"
+   git push origin main
+   ```
+
+3. `ci.yml` 工作流会自动：
+   - 运行所有测试和 lint
+   - 读取 `cli/package.json` 中的版本号，创建对应的版本 Tag（如 `vX.Y.Z`）
+   - 通过 `workflow_dispatch` 触发 `release.yml` 工作流
+
+4. `release.yml` 工作流会自动：
    - 为 Windows / macOS (x64 + arm64) / Linux 构建 CLI 二进制文件
    - 构建 GUI 安装包（Windows NSIS + 便携版，macOS DMG，Linux AppImage）
+   - 更新 `manifest.json` 和 `cli-manifest.json` 中的版本清单及校验和
    - 创建 GitHub Release，上传所有构建产物
    - 将安装包、manifest、安装脚本上传到腾讯云 COS（`TencentSecretId` 环境）
+   - 自动刷新 CDN 缓存（manifest、安装脚本及本次发布的 CLI 包）
 
-4. 在 [GitHub Releases 页面](https://github.com/chsword/openclaw-install-cn/releases) 确认发布成功。
+5. 在 [GitHub Releases 页面](https://github.com/chsword/openclaw-install-cn/releases) 确认发布成功。
+
+> **注意**：如果 Tag 已存在，`ci.yml` 的自动打标步骤会跳过，`release.yml` 不会被重复触发。
+
+### 手动触发发布
+
+如需手动创建 Tag 并触发 Release（不经过 `ci.yml` 自动打标），可直接推送符合格式的 Tag：
+
+```bash
+git checkout main
+git pull origin main
+
+# Tag 格式必须为 v{数字}.{数字}.{数字}，否则不会触发 release.yml
+git tag v1.2.3
+git push origin v1.2.3
+```
 
 ### 发布预发布版（Pre-release）
 
-Tag 名称中包含连字符时会自动标记为 Pre-release：
+> **注意**：`release.yml` 的 Tag 触发器仅匹配 `v[0-9]+.[0-9]+.[0-9]+` 格式（不含连字符）。
+> 含连字符的 Tag（如 `v1.2.3-beta.1`）**不会**通过 Tag push 触发工作流。
 
-```bash
-git tag v1.2.3-beta.1
-git push origin v1.2.3-beta.1
-```
+如需发布 Pre-release，请在 GitHub Actions 页面手动触发 `release.yml`（`workflow_dispatch`），
+或在 `cli/package.json` 中将 `version` 设为带连字符的预发布版本号（如 `1.2.3-beta.1`）后推送到 `main`，
+CI 将读取该版本号、创建 `v1.2.3-beta.1` Tag，并通过 `workflow_dispatch` 触发 Release 工作流（此时 `contains(github.ref_name, '-')` 为 `true`，GitHub Release 会自动标记为 Pre-release）。
 
 ---
 
@@ -196,12 +231,12 @@ curl -I https://oclaw.chatu.plus/manifest.json
 
 ### `oclaw install` 提示 "版本未找到"
 
-1. 确认 CDN 上的 `manifest.json` 已更新：
+1. 确认 CDN 上的 `manifest.json` 已更新（`release.yml` 的 `deploy-to-cos` 任务会自动更新）：
    ```bash
    curl https://oclaw.chatu.plus/manifest.json
    ```
 2. 确认 `versions` 数组中包含对应版本
-3. 在腾讯云 CDN 控制台 → 刷新预热 → 刷新 `manifest.json` 和 `cli-manifest.json` 的缓存
+3. CDN 缓存由 `deploy-to-cos` 任务通过 `tccli cdn PurgeUrlsCache` 自动刷新；若仍有缓存问题，可在腾讯云 CDN 控制台 → 刷新预热 → 手动刷新 `manifest.json` 和 `cli-manifest.json` 的缓存
 
 ### deploy-to-cos 任务失败
 
