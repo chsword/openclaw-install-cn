@@ -54,8 +54,9 @@ jobs:
               | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'])")
             VERSION="${TAG#v}"
           fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=$TAG"         >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION"               >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG"                        >> "$GITHUB_OUTPUT"
+          echo "release_tag=openclaw-${VERSION}" >> "$GITHUB_OUTPUT"
           echo "Upstream OpenClaw version: $VERSION (tag: $TAG)"
 
       # ── 2. Skip if this version is already in manifest.json ───────────────
@@ -97,7 +98,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${{ steps.detect.outputs.tag }}"
+          TAG="${{ steps.detect.outputs.release_tag }}"
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "release_exists=true" >> "$GITHUB_OUTPUT"
             echo "::notice::GitHub Release $TAG already exists – skipping release creation."
@@ -434,8 +435,8 @@ jobs:
         if: steps.check_release.outputs.release_exists == 'false'
         uses: softprops/action-gh-release@v2.5.0
         with:
-          tag_name: ${{ steps.detect.outputs.version }}
-          name: ${{ steps.detect.outputs.version }}
+          tag_name: ${{ steps.detect.outputs.release_tag }}
+          name: "OpenClaw 上游 ${{ steps.detect.outputs.version }}"
           body: |
             OpenClaw ${{ steps.detect.outputs.version }} 已从上游 [openclaw/openclaw](https://github.com/openclaw/openclaw/releases/tag/${{ steps.detect.outputs.tag }}) 同步。
 
