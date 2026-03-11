@@ -63,12 +63,13 @@ function runCliOffline(args, tmpHome, opts = {}) {
  *
  * @param {string}  bundleDir - absolute path to create
  * @param {string}  version
- * @param {'versioned'|'flat'} [layout='versioned']
- *   versioned: archive goes in {bundleDir}/{version}/{filename}
- *   flat:      archive goes in {bundleDir}/{filename}
+ * @param {'pkg'|'versioned'|'flat'} [layout='pkg']
+ *   pkg:       archive goes in {bundleDir}/pkg/{version}/{filename}  (CDN-mirror, preferred)
+ *   versioned: archive goes in {bundleDir}/{version}/{filename}      (legacy)
+ *   flat:      archive goes in {bundleDir}/{filename}                (flat)
  * @returns {{ bundleDir: string, archivePath: string }}
  */
-function makeLocalBundle(bundleDir, version, layout = 'versioned') {
+function makeLocalBundle(bundleDir, version, layout = 'pkg') {
   const filename    = pkgFilename(version);
   const platformKey = `${PLATFORM}-${ARCH}`;
 
@@ -88,7 +89,11 @@ function makeLocalBundle(bundleDir, version, layout = 'versioned') {
   const archiveBuf = buildArchive(version);
   let archivePath;
 
-  if (layout === 'versioned') {
+  if (layout === 'pkg') {
+    const pkgVersionDir = path.join(bundleDir, 'pkg', version);
+    fs.mkdirSync(pkgVersionDir, { recursive: true });
+    archivePath = path.join(pkgVersionDir, filename);
+  } else if (layout === 'versioned') {
     const versionDir = path.join(bundleDir, version);
     fs.mkdirSync(versionDir, { recursive: true });
     archivePath = path.join(versionDir, filename);
@@ -145,7 +150,20 @@ describe('integration (offline): install from local package', () => {
     assert.equal(marker, '1.0.0');
   });
 
-  // ── 3. Install from a direct archive file ─────────────────────────────────
+  // ── 3. Install from pkg/{version}/ layout (CDN-mirror) ────────────────────
+
+  test('installs from local bundle directory (pkg layout — CDN mirror)', { timeout: 30000 }, async () => {
+    const { bundleDir } = makeLocalBundle(path.join(tmpBundles, 'v1-pkg'), '1.0.0', 'pkg');
+
+    const r = await runCliOffline(['install', '--local-package', bundleDir, '--dir', installDir], tmpHome);
+    assert.strictEqual(r.exitCode, 0, `Expected exit 0\n${r.output}`);
+    assert.match(r.output, /installed successfully/i);
+
+    const marker = fs.readFileSync(path.join(installDir, '.oclaw-version'), 'utf-8').trim();
+    assert.equal(marker, '1.0.0');
+  });
+
+  // ── 4. Install from a direct archive file ─────────────────────────────────
 
   test('installs from a direct local archive file', { timeout: 30000 }, async () => {
     const version     = '2.0.0';
@@ -165,7 +183,7 @@ describe('integration (offline): install from local package', () => {
     assert.equal(marker, version);
   });
 
-  // ── 4. Skip reinstall when already at same version ────────────────────────
+  // ── 5. Skip reinstall when already at same version ────────────────────────
 
   test('skips reinstall when already at same version (no --force)', { timeout: 30000 }, async () => {
     const { bundleDir } = makeLocalBundle(path.join(tmpBundles, 'skip-test'), '1.0.0', 'versioned');
@@ -179,7 +197,7 @@ describe('integration (offline): install from local package', () => {
     assert.match(r.output, /already installed/i);
   });
 
-  // ── 5. Force reinstall ────────────────────────────────────────────────────
+  // ── 6. Force reinstall ────────────────────────────────────────────────────
 
   test('reinstalls when --force is given even if version matches', { timeout: 30000 }, async () => {
     const { bundleDir } = makeLocalBundle(path.join(tmpBundles, 'force-test'), '1.0.0', 'versioned');
@@ -198,7 +216,7 @@ describe('integration (offline): install from local package', () => {
     );
   });
 
-  // ── 6. Upgrade to a newer version via local bundle ────────────────────────
+  // ── 7. Upgrade to a newer version via local bundle ────────────────────────
 
   test('upgrades to a newer version from a local bundle', { timeout: 30000 }, async () => {
     // Install v1.0.0 from local bundle
@@ -229,7 +247,7 @@ describe('integration (offline): install from local package', () => {
     );
   });
 
-  // ── 7. Latest version is selected from a multi-version bundle ────────────
+  // ── 8. Latest version is selected from a multi-version bundle (pkg layout) ─
 
   test('installs the latest version from a multi-version bundle', { timeout: 30000 }, async () => {
     const v1         = '1.0.0';
@@ -237,8 +255,9 @@ describe('integration (offline): install from local package', () => {
     const platformKey = `${PLATFORM}-${ARCH}`;
     const bundleDir  = path.join(tmpBundles, 'multi-version');
 
-    const v1Dir = path.join(bundleDir, v1);
-    const v2Dir = path.join(bundleDir, v2);
+    // Use the CDN-mirror pkg/{version}/ layout
+    const v1Dir = path.join(bundleDir, 'pkg', v1);
+    const v2Dir = path.join(bundleDir, 'pkg', v2);
     fs.mkdirSync(v1Dir, { recursive: true });
     fs.mkdirSync(v2Dir, { recursive: true });
 
@@ -268,7 +287,7 @@ describe('integration (offline): install from local package', () => {
     );
   });
 
-  // ── 8. Error: local path does not exist ───────────────────────────────────
+  // ── 9. Error: local path does not exist ───────────────────────────────────
 
   test('exits non-zero when local package path does not exist', { timeout: 15000 }, async () => {
     const r = await runCliOffline(
@@ -279,7 +298,7 @@ describe('integration (offline): install from local package', () => {
     assert.match(r.output, /not found|no such|error/i);
   });
 
-  // ── 9. Error: directory without manifest.json ─────────────────────────────
+  // ── 10. Error: directory without manifest.json ────────────────────────────
 
   test('exits non-zero when bundle directory has no manifest.json', { timeout: 15000 }, async () => {
     const emptyDir = path.join(tmpBundles, 'no-manifest');

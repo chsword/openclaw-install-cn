@@ -43,7 +43,7 @@
 │       │                                                          │   │
 │       ├── Detect latest openclaw/openclaw release                │   │
 │       ├── Download & repackage upstream packages                 │   │
-│       └── Upload {openclaw-ver}/openclaw-* + manifest ───────┐  │   │
+│       └── Upload pkg/{openclaw-ver}/openclaw-* + manifest ────┐  │   │
 └──────────────────────────────────────────────────────────────│──│───┘
                                                                │  │
                                                                ▼  ▼
@@ -55,7 +55,7 @@
                                          │  cli-manifest.json ◄─ rel.  │
                                          │  install.sh / install.ps1   │
                                          │                             │
-                                         │  {openclaw-ver}/            │
+                                         │  pkg/{openclaw-ver}/        │
                                          │    openclaw-*  ◄─── sync    │
                                          │  cli/{installer-ver}/       │
                                          │    oclaw-*  ◄──── release   │
@@ -79,7 +79,7 @@
 |----------|----------|----------|
 | `cli/{ver}/oclaw-*` | 本安装工具的 Tag 版本（如 `0.2.3`） | `release.yml` |
 | `gui/{ver}/openclaw-gui-*` | 本安装工具的 GUI 离线安装包（如 `0.2.3`） | `release.yml` |
-| `{ver}/openclaw-*` | 上游 OpenClaw 应用版本（如 `2026.3.8`） | `sync-openclaw.yml` |
+| `pkg/{ver}/openclaw-*` | 上游 OpenClaw 应用版本（如 `2026.3.8`） | `sync-openclaw.yml` |
 
 开发者只需将更新合并到 `main` 分支，GitHub Actions 会自动从 `cli/package.json` 读取版本号、创建 Tag、构建所有平台安装包并上传到腾讯云 COS，无需手动操作。
 
@@ -180,7 +180,7 @@ CI 将读取该版本号、创建 `v1.2.3-beta.1` Tag，并通过 `workflow_disp
 
 ## 同步上游 OpenClaw 应用版本（sync-openclaw.yml）
 
-`manifest.json`（`oclaw install` / `oclaw upgrade` 用于定位安装包的清单）和 CDN 上的 `{openclaw-ver}/openclaw-*` 包**不由 `release.yml` 管理**，而是由独立的 `sync-openclaw.yml` 工作流负责。
+`manifest.json`（`oclaw install` / `oclaw upgrade` 用于定位安装包的清单）和 CDN 上的 `pkg/{openclaw-ver}/openclaw-*` 包**不由 `release.yml` 管理**，而是由独立的 `sync-openclaw.yml` 工作流负责。
 
 ### 触发方式
 
@@ -196,7 +196,7 @@ CI 将读取该版本号、创建 `v1.2.3-beta.1` Tag，并通过 `workflow_disp
 3. 下载该 Release 中所有平台的安装包（支持多种文件名模式，缺失平台静默跳过）
 4. 将下载的包重新打包为 CDN 规范格式（`openclaw-{ver}-{platform}.{ext}`）
 5. 计算 SHA-256 校验和，更新 `cdn-template/manifest.json`
-6. 上传至腾讯云 COS 的 `{openclaw-ver}/` 目录
+6. 上传至腾讯云 COS 的 `pkg/{openclaw-ver}/` 目录
 7. 刷新 CDN 缓存（`manifest.json` + 本次上传的包 URL）
 8. 将更新后的 `cdn-template/manifest.json` 提交回 `main` 分支
 
@@ -255,11 +255,13 @@ oclaw status --check-updates
 ├── install.sh                  # macOS / Linux 引导脚本
 ├── install.ps1                 # Windows PowerShell 引导脚本
 │
-│── 1.0.0/                      # OpenClaw v1.0.0 安装包目录
-│   ├── openclaw-1.0.0-win32-x64.zip
-│   ├── openclaw-1.0.0-darwin-x64.tar.gz
-│   ├── openclaw-1.0.0-darwin-arm64.tar.gz
-│   └── openclaw-1.0.0-linux-x64.tar.gz
+│── pkg/                        # OpenClaw 应用包目录（上游版本，由 sync-openclaw.yml 管理）
+│   ├── 1.0.0/                  # OpenClaw v1.0.0 安装包
+│   │   ├── openclaw-1.0.0-win32-x64.zip
+│   │   ├── openclaw-1.0.0-darwin-x64.tar.gz
+│   │   ├── openclaw-1.0.0-darwin-arm64.tar.gz
+│   │   └── openclaw-1.0.0-linux-x64.tar.gz
+│   └── ...
 │
 ├── cli/                        # oclaw CLI 二进制包目录
 │   ├── 1.0.0/

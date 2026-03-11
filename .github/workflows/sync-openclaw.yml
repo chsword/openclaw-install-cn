@@ -1,12 +1,13 @@
 name: Sync OpenClaw Upstream Release
 
 # Automatically mirrors the latest openclaw/openclaw release onto the CDN
-# (manifest.json + {openclaw-ver}/openclaw-* packages) without requiring a
+# (manifest.json + pkg/{openclaw-ver}/openclaw-* packages) without requiring a
 # new release of this installer project.
 #
-# Two independent version tracks on the CDN:
-#   {openclaw-ver}/openclaw-*    ← managed here (upstream OpenClaw app)
-#   cli/{installer-ver}/oclaw-*  ← managed by release.yml (this CLI tool)
+# Three independent version tracks on the CDN:
+#   pkg/{openclaw-ver}/openclaw-*  ← managed here (upstream OpenClaw app)
+#   cli/{installer-ver}/oclaw-*    ← managed by release.yml (this CLI tool)
+#   gui/{installer-ver}/openclaw-gui-* ← managed by release.yml (GUI installer)
 #
 # Triggered by:
 #   1. Daily schedule – polls for new upstream releases automatically
@@ -134,7 +135,7 @@ jobs:
           ls -lh upstream-assets/
 
       # ── 4. Repackage upstream assets into CDN-expected format ──────────────
-      # Expected CDN layout: {openclaw-ver}/openclaw-{ver}-{platform}.{ext}
+      # Expected CDN layout: pkg/{openclaw-ver}/openclaw-{ver}-{platform}.{ext}
       # The upstream release may use different file-name conventions; we try
       # several patterns per platform and fall back gracefully.
       - name: Repackage upstream assets for CDN
@@ -296,8 +297,8 @@ jobs:
             fi
           }
 
-          # OpenClaw app packages go into {openclaw-ver}/ on CDN
-          # (version track is completely independent of the installer's cli/ track)
+          # OpenClaw app packages go into pkg/{openclaw-ver}/ on CDN
+          # (version track is completely independent of the installer's cli/ and gui/ tracks)
           for plat_ext in \
             "win32-x64:zip" \
             "darwin-x64:tar.gz" \
@@ -307,7 +308,7 @@ jobs:
             plat="${plat_ext%%:*}"
             ext="${plat_ext##*:}"
             src="cdn-packages/openclaw-${VERSION}-${plat}.${ext}"
-            dst="${VERSION}/openclaw-${VERSION}-${plat}.${ext}"
+            dst="pkg/${VERSION}/openclaw-${VERSION}-${plat}.${ext}"
             if [ -f "$src" ]; then
               cos_upload_if_new "$src" "$dst"
             else
@@ -342,7 +343,7 @@ jobs:
               ('darwin-arm64', 'tar.gz'),
               ('linux-x64',    'tar.gz'),
           ]:
-              urls.append(f'{base}/{v}/openclaw-{v}-{plat}.{ext}')
+              urls.append(f'{base}/pkg/{v}/openclaw-{v}-{plat}.{ext}')
           print(json.dumps(urls))
           PYEOF
           )

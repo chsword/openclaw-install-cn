@@ -21,7 +21,7 @@
 #   {OCLAW_LOCAL_BUNDLE}/cli-manifest.json
 #   {OCLAW_LOCAL_BUNDLE}/cli/{version}/oclaw-{version}-{os}-{arch}.tar.gz
 #   {OCLAW_LOCAL_BUNDLE}/manifest.json
-#   {OCLAW_LOCAL_BUNDLE}/{version}/openclaw-{version}-{os}-{arch}.tar.gz
+#   {OCLAW_LOCAL_BUNDLE}/pkg/{version}/openclaw-{version}-{os}-{arch}.tar.gz
 #
 # Example:
 #   export OCLAW_LOCAL_BUNDLE=/mnt/usb/openclaw-bundle

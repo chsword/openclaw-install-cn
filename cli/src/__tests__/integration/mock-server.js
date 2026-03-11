@@ -283,8 +283,8 @@ class MockCdnServer {
       });
     }
 
-    // Package download: /{version}/{filename.tar.gz|.zip}
-    const m = url.match(/^\/([^/]+)\/(.*(?:\.tar\.gz|\.zip))$/);
+    // Package download: /pkg/{version}/{filename} (current) or /{version}/{filename} (legacy)
+    const m = url.match(/^\/(?:pkg\/)?([^/]+)\/(.*(?:\.tar\.gz|\.zip))$/);
     if (m) {
       const filename = m[2];
       const buf = this._packages.get(filename);
