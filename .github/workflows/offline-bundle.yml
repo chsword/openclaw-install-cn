@@ -1,0 +1,577 @@
+name: Build Offline Bundle
+
+# Builds a full offline installation bundle for OpenClaw.
+# Users can download and install without any internet access.
+#
+# The bundle mirrors the CDN layout expected by install.sh and install.ps1:
+#   openclaw-bundle/
+#     cli-manifest.json
+#     cli/{cli-ver}/oclaw-{cli-ver}-{os}-{arch}.{ext}
+#     manifest.json
+#     pkg/{openclaw-ver}/openclaw-{openclaw-ver}-{os}-{arch}.{ext}
+#     install.sh           ← convenience copy of the bootstrap script
+#     install.ps1          ← convenience copy of the bootstrap script
+#
+# Usage after extracting the downloaded zip:
+#   macOS / Linux:
+#     export OCLAW_LOCAL_BUNDLE=/path/to/openclaw-bundle
+#     bash openclaw-bundle/install.sh
+#   Windows (PowerShell):
+#     $env:OCLAW_LOCAL_BUNDLE = "C:\path\to\openclaw-bundle"
+#     & ".\openclaw-bundle\install.ps1"
+#
+# Triggered by:
+#   1. workflow_dispatch – manual run with optional version overrides
+#   2. workflow_run      – auto-runs after a successful release.yml run
+on:
+  workflow_dispatch:
+    inputs:
+      cli_version:
+        description: >
+          CLI version to bundle (e.g. "1.2.3").
+          Leave empty to use the version in cli/package.json.
+        required: false
+        default: ''
+      openclaw_version:
+        description: >
+          OpenClaw version to bundle (e.g. "2026.3.8").
+          Leave empty to auto-detect the latest release from openclaw/openclaw.
+        required: false
+        default: ''
+  workflow_run:
+    workflows: ['Release']
+    types: [completed]
+
+permissions:
+  contents: write   # needed to create releases and upload assets
+
+jobs:
+  # ── 1. Build CLI binaries ──────────────────────────────────────────────────
+  build-cli:
+    name: Build CLI binaries
+    # For workflow_run, only proceed when the upstream release succeeded.
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    outputs:
+      cli_version: ${{ steps.ver.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 18 (matches pkg targets)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: cli/package-lock.json
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        id: cache-cli-node-modules
+        with:
+          path: cli/node_modules
+          key: ${{ runner.os }}-node18-cli-node-modules-${{ hashFiles('cli/package-lock.json') }}
+
+      - name: Install CLI dependencies
+        if: steps.cache-cli-node-modules.outputs.cache-hit != 'true'
+        run: npm ci
+        working-directory: cli
+
+      - name: Determine CLI version
+        id: ver
+        run: |
+          if [ -n "${{ inputs.cli_version }}" ]; then
+            VERSION="${{ inputs.cli_version }}"
+          else
+            VERSION=$(node -p "require('./cli/package.json').version")
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "CLI version: $VERSION"
+
+      - name: Update CLI version in package.json
+        run: |
+          cd cli
+          npm version "${{ steps.ver.outputs.version }}" --no-git-tag-version --allow-same-version
+        continue-on-error: true
+
+      - name: Build CLI binaries (all platforms)
+        run: |
+          npm run build:win
+          npm run build:mac-x64
+          npm run build:mac-arm64
+          npm run build:linux
+        working-directory: cli
+
+      - name: Package CLI binaries into CDN-format archives
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          mkdir -p cli-packages
+          (cd cli/dist && zip     "$OLDPWD/cli-packages/oclaw-${VERSION}-win32-x64.zip"      oclaw-win-x64.exe)
+          (cd cli/dist && tar -czf "$OLDPWD/cli-packages/oclaw-${VERSION}-darwin-x64.tar.gz"   oclaw-darwin-x64)
+          (cd cli/dist && tar -czf "$OLDPWD/cli-packages/oclaw-${VERSION}-darwin-arm64.tar.gz" oclaw-darwin-arm64)
+          (cd cli/dist && tar -czf "$OLDPWD/cli-packages/oclaw-${VERSION}-linux-x64.tar.gz"   oclaw-linux-x64)
+          echo "=== cli-packages/ ==="
+          ls -lh cli-packages/
+
+      - name: Generate cli-manifest.json for bundle
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          python3 - <<EOF
+          import json, hashlib, datetime, os
+
+          def sha256_file(path):
+              h = hashlib.sha256()
+              with open(path, 'rb') as f:
+                  for chunk in iter(lambda: f.read(65536), b''):
+                      h.update(chunk)
+              return h.hexdigest()
+
+          version = "$VERSION"
+          d = 'cli-packages'
+          checksums = {}
+          for plat, ext in [
+              ('win32-x64',    'zip'),
+              ('darwin-x64',   'tar.gz'),
+              ('darwin-arm64', 'tar.gz'),
+              ('linux-x64',    'tar.gz'),
+          ]:
+              path = f'{d}/oclaw-{version}-{plat}.{ext}'
+              checksums[plat] = 'sha256:' + sha256_file(path) if os.path.exists(path) else 'sha256:UNAVAILABLE'
+
+          manifest = {
+              "latest": version,
+              "versions": [{
+                  "version": version,
+                  "releaseDate": datetime.date.today().isoformat(),
+                  "files": {
+                      "win32-x64":    f"oclaw-{version}-win32-x64.zip",
+                      "darwin-x64":   f"oclaw-{version}-darwin-x64.tar.gz",
+                      "darwin-arm64": f"oclaw-{version}-darwin-arm64.tar.gz",
+                      "linux-x64":    f"oclaw-{version}-linux-x64.tar.gz",
+                  },
+                  "checksums": checksums,
+              }]
+          }
+          with open(f'{d}/cli-manifest.json', 'w') as f:
+              json.dump(manifest, f, indent=2, ensure_ascii=False)
+              f.write('\n')
+          print(json.dumps(manifest, indent=2))
+          EOF
+
+      - name: Upload CLI packages artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: offline-cli-packages
+          path: cli-packages/
+          retention-days: 1
+
+  # ── 2. Download OpenClaw upstream packages ─────────────────────────────────
+  download-openclaw:
+    name: Download OpenClaw packages
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    outputs:
+      openclaw_version: ${{ steps.detect.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect upstream OpenClaw version
+        id: detect
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -n "${{ inputs.openclaw_version }}" ]; then
+            VERSION="${{ inputs.openclaw_version }}"
+            VERSION="${VERSION#v}"
+          else
+            TAG=$(curl -fsSL \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              https://api.github.com/repos/openclaw/openclaw/releases/latest \
+              | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'])")
+            VERSION="${TAG#v}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "OpenClaw version: $VERSION"
+
+      - name: Download upstream release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG:      v${{ steps.detect.outputs.version }}
+        run: |
+          mkdir -p upstream-assets openclaw-packages
+
+          RELEASE_JSON=$(curl -fsSL \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/openclaw/openclaw/releases/tags/${TAG}")
+
+          echo "=== Release info ==="
+          echo "$RELEASE_JSON" | python3 -c "
+          import sys, json
+          d = json.load(sys.stdin)
+          print(f'  name:   {d.get(\"name\",\"\")}')
+          print(f'  tag:    {d.get(\"tag_name\",\"\")}')
+          print(f'  assets: {len(d.get(\"assets\",[]))}')
+          for a in d.get('assets', []):
+              print(f'    {a[\"name\"]}  ({a[\"size\"]:,} bytes)')
+          "
+
+          echo "$RELEASE_JSON" | python3 -c "
+          import sys, json
+          d = json.load(sys.stdin)
+          for a in d.get('assets', []):
+              print(a['name'] + '|' + a['browser_download_url'])
+          " > /tmp/asset-list.txt
+
+          echo "=== Downloading assets ==="
+          while IFS='|' read -r name url; do
+            [ -z "$name" ] && continue
+            echo "  ↓ $name"
+            curl -fsSL -L \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -o "upstream-assets/$name" \
+              "$url"
+          done < /tmp/asset-list.txt
+
+          echo "=== upstream-assets/ ==="
+          ls -lh upstream-assets/
+
+      - name: Repackage upstream assets into CDN format
+        env:
+          VERSION: ${{ steps.detect.outputs.version }}
+        run: |
+          # Helper: find the first matching candidate and convert to CDN target format.
+          repackage() {
+            local dst="$1"; shift
+            for candidate in "$@"; do
+              [ -f "upstream-assets/$candidate" ] || continue
+              echo "  MATCH  $candidate  →  $(basename "$dst")"
+              case "$candidate" in
+                *.zip)
+                  if [[ "$dst" == *.zip ]];    then cp "upstream-assets/$candidate" "$dst"
+                  else tar -czf "$dst" -C upstream-assets "$candidate"; fi ;;
+                *.tar.gz|*.tgz)
+                  if [[ "$dst" == *.tar.gz ]]; then cp "upstream-assets/$candidate" "$dst"
+                  else (cd upstream-assets && zip "../$dst" "$candidate"); fi ;;
+                *.dmg|*.AppImage)
+                  tar -czf "$dst" -C upstream-assets "$candidate" ;;
+                *.exe)
+                  (cd upstream-assets && zip "../$dst" "$candidate") ;;
+                *)
+                  cp "upstream-assets/$candidate" "$dst" ;;
+              esac
+              return 0
+            done
+            echo "  SKIP   (no upstream asset matched) → $(basename "$dst")"
+            return 1
+          }
+
+          V="$VERSION"
+
+          # Normalize upstream asset names to canonical forms
+          for f in "upstream-assets/OpenClaw-${V}".dmg "upstream-assets/OpenClaw-${V}"*.dmg; do
+            [ -f "$f" ] || continue
+            cp "$f" "upstream-assets/openclaw-${V}-mac-universal.dmg"
+            echo "  Normalized: $(basename "$f") → openclaw-${V}-mac-universal.dmg"
+            break
+          done
+          for f in "upstream-assets/OpenClaw-${V}"*.zip; do
+            [[ "$f" == *dSYM* ]] && continue
+            [ -f "$f" ] || continue
+            cp "$f" "upstream-assets/openclaw-${V}-mac-universal.zip"
+            echo "  Normalized: $(basename "$f") → openclaw-${V}-mac-universal.zip"
+            break
+          done
+          for f in "upstream-assets/OpenClaw-${V}"*win*.exe "upstream-assets/OpenClaw-${V}"*Setup*.exe; do
+            [ -f "$f" ] || continue
+            cp "$f" "upstream-assets/openclaw-${V}-win32-x64.exe"
+            echo "  Normalized: $(basename "$f") → openclaw-${V}-win32-x64.exe"
+            break
+          done
+          for f in "upstream-assets/OpenClaw-${V}"*.AppImage; do
+            [ -f "$f" ] || continue
+            cp "$f" "upstream-assets/openclaw-${V}-linux-x64.AppImage"
+            echo "  Normalized: $(basename "$f") → openclaw-${V}-linux-x64.AppImage"
+            break
+          done
+
+          # Windows x64
+          repackage "openclaw-packages/openclaw-${V}-win32-x64.zip" \
+            "openclaw-${V}-win32-x64.zip" \
+            "openclaw-${V}-win-x64.zip" \
+            "OpenClaw-${V}-win32-x64.zip" \
+            "openclaw-${V}-win32-x64.exe" \
+            "openclaw-${V}-setup-x64.exe" \
+            "openclaw-${V}-setup.exe" \
+            "OpenClaw Setup ${V}.exe" || true
+
+          # macOS Intel (x64) – also accepts a universal binary
+          repackage "openclaw-packages/openclaw-${V}-darwin-x64.tar.gz" \
+            "openclaw-${V}-darwin-x64.tar.gz" \
+            "openclaw-${V}-mac-x64.tar.gz" \
+            "openclaw-${V}-darwin-x64.dmg" \
+            "openclaw-${V}-mac-x64.dmg" \
+            "openclaw-${V}-x64.dmg" \
+            "openclaw-${V}-mac-universal.dmg" \
+            "openclaw-${V}-mac-universal.zip" || true
+
+          # macOS Apple Silicon (arm64) – also accepts a universal binary
+          repackage "openclaw-packages/openclaw-${V}-darwin-arm64.tar.gz" \
+            "openclaw-${V}-darwin-arm64.tar.gz" \
+            "openclaw-${V}-mac-arm64.tar.gz" \
+            "openclaw-${V}-darwin-arm64.dmg" \
+            "openclaw-${V}-mac-arm64.dmg" \
+            "openclaw-${V}-arm64.dmg" \
+            "openclaw-${V}-mac-universal.dmg" \
+            "openclaw-${V}-mac-universal.zip" || true
+
+          # Linux x64
+          repackage "openclaw-packages/openclaw-${V}-linux-x64.tar.gz" \
+            "openclaw-${V}-linux-x64.tar.gz" \
+            "openclaw-${V}-linux-amd64.tar.gz" \
+            "openclaw-${V}-linux-x64.AppImage" \
+            "openclaw-${V}-x64.AppImage" \
+            "openclaw-${V}-amd64.AppImage" || true
+
+          echo "=== openclaw-packages/ ==="
+          ls -lh openclaw-packages/ || echo "  (empty)"
+
+      - name: Generate manifest.json for bundle
+        env:
+          VERSION: ${{ steps.detect.outputs.version }}
+        run: |
+          python3 - <<'PYEOF'
+          import json, os, hashlib, datetime
+
+          def sha256_file(path):
+              h = hashlib.sha256()
+              with open(path, 'rb') as f:
+                  for chunk in iter(lambda: f.read(65536), b''):
+                      h.update(chunk)
+              return h.hexdigest()
+
+          def checksum_for(path):
+              if os.path.exists(path):
+                  return 'sha256:' + sha256_file(path)
+              return 'sha256:UNAVAILABLE'
+
+          version = os.environ['VERSION']
+          d = 'openclaw-packages'
+          checksums = {
+              'win32-x64':    checksum_for(f'{d}/openclaw-{version}-win32-x64.zip'),
+              'darwin-x64':   checksum_for(f'{d}/openclaw-{version}-darwin-x64.tar.gz'),
+              'darwin-arm64': checksum_for(f'{d}/openclaw-{version}-darwin-arm64.tar.gz'),
+              'linux-x64':    checksum_for(f'{d}/openclaw-{version}-linux-x64.tar.gz'),
+          }
+          manifest = {
+              'latest': version,
+              'versions': [{
+                  'version':     version,
+                  'releaseDate': datetime.date.today().isoformat(),
+                  'description': f'OpenClaw {version}',
+                  'files': {
+                      'win32-x64':    f'openclaw-{version}-win32-x64.zip',
+                      'darwin-x64':   f'openclaw-{version}-darwin-x64.tar.gz',
+                      'darwin-arm64': f'openclaw-{version}-darwin-arm64.tar.gz',
+                      'linux-x64':    f'openclaw-{version}-linux-x64.tar.gz',
+                  },
+                  'checksums': checksums,
+              }]
+          }
+          with open(f'{d}/manifest.json', 'w') as f:
+              json.dump(manifest, f, indent=2, ensure_ascii=False)
+              f.write('\n')
+          print(json.dumps(manifest, indent=2))
+          PYEOF
+
+      - name: Upload OpenClaw packages artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: offline-openclaw-packages
+          path: openclaw-packages/
+          retention-days: 1
+
+  # ── 3. Assemble and publish the offline bundle ──────────────────────────────
+  assemble-bundle:
+    name: Assemble and publish offline bundle
+    needs: [build-cli, download-openclaw]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download CLI packages artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: offline-cli-packages
+          path: cli-packages/
+
+      - name: Download OpenClaw packages artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: offline-openclaw-packages
+          path: openclaw-packages/
+
+      - name: Assemble full offline bundle directory
+        env:
+          CLI_VERSION:      ${{ needs.build-cli.outputs.cli_version }}
+          OPENCLAW_VERSION: ${{ needs.download-openclaw.outputs.openclaw_version }}
+        run: |
+          CLI_VER="$CLI_VERSION"
+          OC_VER="$OPENCLAW_VERSION"
+          BUNDLE="openclaw-bundle"
+
+          mkdir -p "$BUNDLE/cli/${CLI_VER}" "$BUNDLE/pkg/${OC_VER}"
+
+          # CLI manifest and packages
+          cp cli-packages/cli-manifest.json "$BUNDLE/cli-manifest.json"
+          for f in cli-packages/oclaw-*.zip cli-packages/oclaw-*.tar.gz; do
+            [ -f "$f" ] && cp "$f" "$BUNDLE/cli/${CLI_VER}/"
+          done
+
+          # OpenClaw manifest and packages
+          cp openclaw-packages/manifest.json "$BUNDLE/manifest.json"
+          for f in openclaw-packages/openclaw-*.zip openclaw-packages/openclaw-*.tar.gz; do
+            [ -f "$f" ] && cp "$f" "$BUNDLE/pkg/${OC_VER}/"
+          done
+
+          # Bootstrap scripts (convenience copies so users can install from within the bundle)
+          cp scripts/install.sh  "$BUNDLE/"
+          cp scripts/install.ps1 "$BUNDLE/"
+
+          echo "=== Full bundle structure ==="
+          find "$BUNDLE" -type f | sort | xargs ls -lh
+
+      - name: Create per-platform offline bundle archives
+        env:
+          CLI_VERSION:      ${{ needs.build-cli.outputs.cli_version }}
+          OPENCLAW_VERSION: ${{ needs.download-openclaw.outputs.openclaw_version }}
+        run: |
+          CLI_VER="$CLI_VERSION"
+          OC_VER="$OPENCLAW_VERSION"
+
+          for plat in win32-x64 darwin-x64 darwin-arm64 linux-x64; do
+            PLAT_BUNDLE="openclaw-bundle-${plat}"
+            mkdir -p "$PLAT_BUNDLE/cli/${CLI_VER}" "$PLAT_BUNDLE/pkg/${OC_VER}"
+
+            # Shared files
+            cp openclaw-bundle/cli-manifest.json "$PLAT_BUNDLE/"
+            cp openclaw-bundle/manifest.json     "$PLAT_BUNDLE/"
+            cp openclaw-bundle/install.sh        "$PLAT_BUNDLE/" 2>/dev/null || true
+            cp openclaw-bundle/install.ps1       "$PLAT_BUNDLE/" 2>/dev/null || true
+
+            # Platform-specific CLI package
+            case "$plat" in
+              win32-x64)    cli_pkg="oclaw-${CLI_VER}-win32-x64.zip" ;;
+              darwin-x64)   cli_pkg="oclaw-${CLI_VER}-darwin-x64.tar.gz" ;;
+              darwin-arm64) cli_pkg="oclaw-${CLI_VER}-darwin-arm64.tar.gz" ;;
+              linux-x64)    cli_pkg="oclaw-${CLI_VER}-linux-x64.tar.gz" ;;
+            esac
+            src="openclaw-bundle/cli/${CLI_VER}/${cli_pkg}"
+            [ -f "$src" ] && cp "$src" "$PLAT_BUNDLE/cli/${CLI_VER}/" \
+              || echo "WARNING: CLI package not found: $src"
+
+            # Platform-specific OpenClaw package
+            case "$plat" in
+              win32-x64)    oc_pkg="openclaw-${OC_VER}-win32-x64.zip" ;;
+              darwin-x64)   oc_pkg="openclaw-${OC_VER}-darwin-x64.tar.gz" ;;
+              darwin-arm64) oc_pkg="openclaw-${OC_VER}-darwin-arm64.tar.gz" ;;
+              linux-x64)    oc_pkg="openclaw-${OC_VER}-linux-x64.tar.gz" ;;
+            esac
+            src="openclaw-bundle/pkg/${OC_VER}/${oc_pkg}"
+            [ -f "$src" ] && cp "$src" "$PLAT_BUNDLE/pkg/${OC_VER}/" \
+              || echo "WARNING: OpenClaw package not found: $src"
+
+            echo "=== $plat bundle ==="
+            find "$PLAT_BUNDLE" -type f | sort
+
+            # Pack into a zip for easy download
+            zip -r "openclaw-offline-bundle-${CLI_VER}-${plat}.zip" "$PLAT_BUNDLE/"
+            echo "Created: openclaw-offline-bundle-${CLI_VER}-${plat}.zip ($(du -sh "openclaw-offline-bundle-${CLI_VER}-${plat}.zip" | cut -f1))"
+          done
+
+          # Full all-platform bundle
+          zip -r "openclaw-offline-bundle-${CLI_VER}-all-platforms.zip" "openclaw-bundle/"
+          echo "Created: openclaw-offline-bundle-${CLI_VER}-all-platforms.zip ($(du -sh "openclaw-offline-bundle-${CLI_VER}-all-platforms.zip" | cut -f1))"
+
+          echo "=== All bundle archives ==="
+          ls -lh openclaw-offline-bundle-*.zip
+
+      - name: Generate SHA-256 checksums for bundle archives
+        run: |
+          sha256sum openclaw-offline-bundle-*.zip > bundle-checksums.sha256
+          echo "=== checksums ==="
+          cat bundle-checksums.sha256
+
+      - name: Create GitHub Release with offline bundles
+        uses: softprops/action-gh-release@v2.0.0
+        with:
+          tag_name: offline-${{ needs.build-cli.outputs.cli_version }}-oc${{ needs.download-openclaw.outputs.openclaw_version }}
+          name: "离线安装包 | CLI ${{ needs.build-cli.outputs.cli_version }} + OpenClaw ${{ needs.download-openclaw.outputs.openclaw_version }}"
+          body: |
+            ## 全量离线安装包
+
+            本离线包包含所有必要文件，**无需联网**即可完成 OpenClaw 安装。
+
+            ### 📦 包内组件
+
+            | 组件 | 版本 |
+            |------|------|
+            | oclaw CLI（安装工具）| `${{ needs.build-cli.outputs.cli_version }}` |
+            | OpenClaw（主程序）| `${{ needs.download-openclaw.outputs.openclaw_version }}` |
+
+            ### 📥 下载说明
+
+            根据您的操作系统下载对应的离线包：
+
+            | 文件 | 适用平台 |
+            |------|----------|
+            | `openclaw-offline-bundle-*-win32-x64.zip` | Windows x64 |
+            | `openclaw-offline-bundle-*-darwin-x64.zip` | macOS Intel (x64) |
+            | `openclaw-offline-bundle-*-darwin-arm64.zip` | macOS Apple Silicon (arm64) |
+            | `openclaw-offline-bundle-*-linux-x64.zip` | Linux x64 |
+            | `openclaw-offline-bundle-*-all-platforms.zip` | 全平台（含所有文件） |
+
+            ### 🚀 安装步骤
+
+            > ⚠️ **前提：** 离线模式下仍需预先安装 [Node.js](https://nodejs.org/) >= 18。
+
+            **macOS / Linux：**
+            ```bash
+            # 解压（以 Linux 为例）
+            unzip openclaw-offline-bundle-*-linux-x64.zip
+
+            # 指定本地离线包目录
+            export OCLAW_LOCAL_BUNDLE="$(pwd)/openclaw-bundle-linux-x64"
+
+            # 运行安装脚本
+            bash openclaw-bundle-linux-x64/install.sh
+            ```
+
+            **Windows（PowerShell）：**
+            ```powershell
+            # 解压
+            Expand-Archive openclaw-offline-bundle-*-win32-x64.zip .
+
+            # 指定本地离线包目录
+            $env:OCLAW_LOCAL_BUNDLE = "$PWD\openclaw-bundle-win32-x64"
+
+            # 运行安装脚本
+            & ".\openclaw-bundle-win32-x64\install.ps1"
+            ```
+
+            ### 🔒 校验和
+
+            见附件 `bundle-checksums.sha256`
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: false
+          files: |
+            openclaw-offline-bundle-*.zip
+            bundle-checksums.sha256
