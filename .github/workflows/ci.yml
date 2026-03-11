@@ -38,17 +38,17 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Set up Node.js ${{ matrix.node }}
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
           cache: 'npm'
           cache-dependency-path: cli/package-lock.json
 
       - name: Cache node_modules
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         id: cache-cli-node-modules
         with:
           path: cli/node_modules
@@ -70,14 +70,14 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
           cache-dependency-path: cli/package-lock.json
       - name: Cache node_modules
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         id: cache-lint-node-modules
         with:
           path: cli/node_modules
@@ -102,14 +102,14 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '18'
           cache: 'npm'
           cache-dependency-path: cli/package-lock.json
       - name: Cache node_modules
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         id: cache-build-node-modules
         with:
           path: cli/node_modules
@@ -149,17 +149,17 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Set up Node.js ${{ matrix.node }}
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
           cache: 'npm'
           cache-dependency-path: cli/package-lock.json
 
       - name: Cache node_modules
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         id: cache-integration-node-modules
         with:
           path: cli/node_modules
@@ -179,7 +179,7 @@ jobs:
 
       - name: Upload test artifacts on failure
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: integration-test-failure-${{ matrix.os }}-node${{ matrix.node }}
           path: |
@@ -216,7 +216,7 @@ jobs:
           apt-get install -y -qq git curl ca-certificates
 
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Confirm Node.js is absent in the container
         run: |
@@ -293,7 +293,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Validate install.ps1 parameter signatures
         shell: pwsh
@@ -425,7 +425,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
