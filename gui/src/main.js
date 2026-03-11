@@ -221,6 +221,16 @@ ipcMain.handle('install', async (_event, opts = {}) => {
     const version = versionInfo.version;
     const platformKey = `${platform}-${arch}`;
 
+    // Check if this platform's package is available before attempting to download.
+    const platformChecksum = versionInfo.checksums && versionInfo.checksums[platformKey];
+    if (platformChecksum === 'sha256:UNAVAILABLE') {
+      throw new Error(
+        `OpenClaw ${version} is not available for ${platformKey}. ` +
+        'The upstream has not published a package for this platform in this release. ' +
+        'Please try again later – the package may be published in a future sync.'
+      );
+    }
+
     // Determine filename
     let filename;
     if (versionInfo.files && versionInfo.files[platformKey]) {

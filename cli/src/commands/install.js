@@ -160,6 +160,17 @@ async function runInstall(options = {}) {
     }
 
     const version = versionInfo.version;
+
+    // Check if this platform's package is available before attempting to download.
+    const platformChecksum = versionInfo.checksums && versionInfo.checksums[platformKey];
+    if (platformChecksum === 'sha256:UNAVAILABLE') {
+      log.error(`OpenClaw ${version} is not available for ${platformKey}.`);
+      log.dim('The upstream has not published a package for this platform in this release.');
+      log.dim('Please try again later – the package may be published in a future sync.');
+      log.dim(`Upstream release: https://github.com/openclaw/openclaw/releases/tag/v${version}`);
+      process.exit(1);
+    }
+
     const filename =
       versionInfo.files && versionInfo.files[platformKey]
         ? versionInfo.files[platformKey]
