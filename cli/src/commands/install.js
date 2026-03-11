@@ -68,18 +68,23 @@ function resolveLocalPackageDir(localDir, version, platform, arch) {
       ? versionInfo.files[platformKey]
       : getPackageFilename(versionInfo.version, platform, arch);
 
-  // Look in {dir}/{version}/{filename}, then fall back to {dir}/{filename}
+  // Look in {dir}/pkg/{version}/{filename} (CDN-mirror layout),
+  // then {dir}/{version}/{filename} (legacy layout), then {dir}/{filename} (flat)
+  const archiveInPkgDir     = path.join(localDir, 'pkg', versionInfo.version, filename);
   const archiveInVersionDir = path.join(localDir, versionInfo.version, filename);
-  const archiveFlat = path.join(localDir, filename);
+  const archiveFlat         = path.join(localDir, filename);
 
   let archivePath;
-  if (fs.existsSync(archiveInVersionDir)) {
+  if (fs.existsSync(archiveInPkgDir)) {
+    archivePath = archiveInPkgDir;
+  } else if (fs.existsSync(archiveInVersionDir)) {
     archivePath = archiveInVersionDir;
   } else if (fs.existsSync(archiveFlat)) {
     archivePath = archiveFlat;
   } else {
     log.error(`Package file not found: ${filename}`);
     log.dim('Expected locations:');
+    log.dim(`  ${archiveInPkgDir}`);
     log.dim(`  ${archiveInVersionDir}`);
     log.dim(`  ${archiveFlat}`);
     process.exit(1);
@@ -131,7 +136,7 @@ async function runInstall(options = {}) {
       archivePath = localPath;
       // Try to derive the version from the filename (e.g. openclaw-1.2.3-linux-x64.tar.gz)
       const basename = path.basename(localPath);
-      const versionMatch = basename.match(/^openclaw-(\d+\.\d+[\.\d]*(?:-[^-.]+)?)-/);
+      const versionMatch = basename.match(/^openclaw-(\d+(?:\.\d+)*)-/);
       const detectedVersion = versionMatch ? versionMatch[1] : 'local';
       versionInfo = { version: detectedVersion, description: null };
     }

@@ -128,7 +128,7 @@ async function getVersionInfo(cdnBase, version) {
  * @returns {string}
  */
 function buildDownloadUrl(cdnBase, version, filename) {
-  return `${cdnBase.replace(/\/$/, '')}/${version}/${filename}`;
+  return `${cdnBase.replace(/\/$/, '')}/pkg/${version}/${filename}`;
 }
 
 module.exports = {

@@ -118,4 +118,30 @@ describe('resolveLocalPackageDir', () => {
     assert.equal(result.versionInfo.version, version);
     assert.equal(path.basename(result.archivePath), filename);
   });
+
+  test('resolves archive from pkg/{version} subdirectory (CDN-mirror layout)', () => {
+    const platform = getPlatform();
+    const arch = getArch();
+    const platformKey = `${platform}-${arch}`;
+    const version = '5.0.0';
+    const filename = getPackageFilename(version, platform, arch);
+
+    const bundleDir = path.join(tmpBase, 'bundle5');
+    const pkgVersionDir = path.join(bundleDir, 'pkg', version);
+    fs.mkdirSync(pkgVersionDir, { recursive: true });
+
+    const manifest = {
+      latest: version,
+      versions: [{ version, files: { [platformKey]: filename } }],
+    };
+    fs.writeFileSync(path.join(bundleDir, 'manifest.json'), JSON.stringify(manifest));
+
+    // Archive placed in the CDN-mirror pkg/{version}/ layout
+    const archivePath = path.join(pkgVersionDir, filename);
+    fs.writeFileSync(archivePath, 'dummy');
+
+    const result = resolveLocalPackageDir(bundleDir, undefined, platform, arch);
+    assert.equal(result.versionInfo.version, version);
+    assert.equal(result.archivePath, archivePath);
+  });
 });

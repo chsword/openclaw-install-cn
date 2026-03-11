@@ -1,12 +1,13 @@
 name: Sync OpenClaw Upstream Release
 
 # Automatically mirrors the latest openclaw/openclaw release onto the CDN
-# (manifest.json + {openclaw-ver}/openclaw-* packages) without requiring a
+# (manifest.json + pkg/{openclaw-ver}/openclaw-* packages) without requiring a
 # new release of this installer project.
 #
-# Two independent version tracks on the CDN:
-#   {openclaw-ver}/openclaw-*    ← managed here (upstream OpenClaw app)
-#   cli/{installer-ver}/oclaw-*  ← managed by release.yml (this CLI tool)
+# Three independent version tracks on the CDN:
+#   pkg/{openclaw-ver}/openclaw-*  ← managed here (upstream OpenClaw app)
+#   cli/{installer-ver}/oclaw-*    ← managed by release.yml (this CLI tool)
+#   gui/{installer-ver}/openclaw-gui-* ← managed by release.yml (GUI installer)
 #
 # Triggered by:
 #   1. Daily schedule – polls for new upstream releases automatically
@@ -66,7 +67,14 @@ jobs:
           import json, sys
           try:
               m = json.load(open('cdn-template/manifest.json'))
-              print('true' if any(e['version'] == '$VERSION' for e in m.get('versions', [])) else 'false')
+              entry = next((ve for ve in m.get('versions', []) if ve['version'] == '$VERSION'), None)
+              if entry is None:
+                  print('false')
+              elif any(v == 'sha256:UNAVAILABLE' for v in entry.get('checksums', {}).values()):
+                  # Previous sync was incomplete (files not built/uploaded) – retry
+                  print('false')
+              else:
+                  print('true')
           except Exception as e:
               sys.stderr.write(f'Warning: {e}\n')
               print('false')
@@ -127,7 +135,7 @@ jobs:
           ls -lh upstream-assets/
 
       # ── 4. Repackage upstream assets into CDN-expected format ──────────────
-      # Expected CDN layout: {openclaw-ver}/openclaw-{ver}-{platform}.{ext}
+      # Expected CDN layout: pkg/{openclaw-ver}/openclaw-{ver}-{platform}.{ext}
       # The upstream release may use different file-name conventions; we try
       # several patterns per platform and fall back gracefully.
       - name: Repackage upstream assets for CDN
@@ -239,21 +247,24 @@ jobs:
               manifest = json.load(f)
 
           versions = manifest.get('versions', [])
-          if not any(v['version'] == version for v in versions):
-              entry = {
-                  'version':     version,
-                  'releaseDate': datetime.date.today().isoformat(),
-                  'description': f'OpenClaw {version}',
-                  'files': {
-                      'win32-x64':    f'openclaw-{version}-win32-x64.zip',
-                      'darwin-x64':   f'openclaw-{version}-darwin-x64.tar.gz',
-                      'darwin-arm64': f'openclaw-{version}-darwin-arm64.tar.gz',
-                      'linux-x64':    f'openclaw-{version}-linux-x64.tar.gz',
-                  },
-                  'checksums': checksums,
-              }
-              versions.insert(0, entry)
-              manifest['versions'] = versions
+          # Always overwrite an existing entry for this version so that a
+          # re-sync (triggered because checksums were UNAVAILABLE) replaces
+          # the incomplete entry with the freshly-computed checksums.
+          versions = [v for v in versions if v['version'] != version]
+          entry = {
+              'version':     version,
+              'releaseDate': datetime.date.today().isoformat(),
+              'description': f'OpenClaw {version}',
+              'files': {
+                  'win32-x64':    f'openclaw-{version}-win32-x64.zip',
+                  'darwin-x64':   f'openclaw-{version}-darwin-x64.tar.gz',
+                  'darwin-arm64': f'openclaw-{version}-darwin-arm64.tar.gz',
+                  'linux-x64':    f'openclaw-{version}-linux-x64.tar.gz',
+              },
+              'checksums': checksums,
+          }
+          versions.insert(0, entry)
+          manifest['versions'] = versions
 
           manifest['latest'] = version
 
@@ -273,8 +284,8 @@ jobs:
           coscmd config \
             -a "${{ secrets.SECRETID }}" \
             -s "${{ secrets.SECRETKEY }}" \
-            -b "${{ vars.BUCKET }}" \
-            -r "${{ vars.REGION }}"
+            -b "${{ secrets.BUCKET }}" \
+            -r "${{ secrets.REGION }}"
 
           cos_upload_if_new() {
             local src="$1" dst="$2"
@@ -286,8 +297,8 @@ jobs:
             fi
           }
 
-          # OpenClaw app packages go into {openclaw-ver}/ on CDN
-          # (version track is completely independent of the installer's cli/ track)
+          # OpenClaw app packages go into pkg/{openclaw-ver}/ on CDN
+          # (version track is completely independent of the installer's cli/ and gui/ tracks)
           for plat_ext in \
             "win32-x64:zip" \
             "darwin-x64:tar.gz" \
@@ -297,7 +308,7 @@ jobs:
             plat="${plat_ext%%:*}"
             ext="${plat_ext##*:}"
             src="cdn-packages/openclaw-${VERSION}-${plat}.${ext}"
-            dst="${VERSION}/openclaw-${VERSION}-${plat}.${ext}"
+            dst="pkg/${VERSION}/openclaw-${VERSION}-${plat}.${ext}"
             if [ -f "$src" ]; then
               cos_upload_if_new "$src" "$dst"
             else
@@ -332,7 +343,7 @@ jobs:
               ('darwin-arm64', 'tar.gz'),
               ('linux-x64',    'tar.gz'),
           ]:
-              urls.append(f'{base}/{v}/openclaw-{v}-{plat}.{ext}')
+              urls.append(f'{base}/pkg/{v}/openclaw-{v}-{plat}.{ext}')
           print(json.dumps(urls))
           PYEOF
           )

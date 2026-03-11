@@ -16,7 +16,7 @@
     {LocalBundle}\cli-manifest.json
     {LocalBundle}\cli\{version}\oclaw-{version}-win32-{arch}.zip
     {LocalBundle}\manifest.json
-    {LocalBundle}\{version}\openclaw-{version}-win32-{arch}.zip
+    {LocalBundle}\pkg\{version}\openclaw-{version}-win32-{arch}.zip
   Can also be set via the OCLAW_LOCAL_BUNDLE environment variable.
 .PARAMETER NodeMirror
   Mirror URL for Node.js binary downloads (default: https://nodejs.org/dist).
