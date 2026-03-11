@@ -425,13 +425,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Download CLI packages artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: offline-cli-packages
           path: cli-packages/
 
       - name: Download OpenClaw packages artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: offline-openclaw-packages
           path: openclaw-packages/

@@ -212,25 +212,25 @@ jobs:
           echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Download CLI binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: cli-binaries
           path: artifacts/cli/
 
       - name: Download Windows GUI
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: gui-win
           path: artifacts/gui/win/
 
       - name: Download macOS GUI
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: gui-mac
           path: artifacts/gui/mac/
 
       - name: Download Linux GUI
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: gui-linux
           path: artifacts/gui/linux/
@@ -517,31 +517,31 @@ jobs:
       # Reuse the cdn-packages and updated manifests built by the release job
       # instead of re-downloading all binaries and re-packaging them.
       - name: Download CDN packages
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: cdn-packages
           path: cdn-packages/
 
       - name: Download CDN manifests
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: cdn-manifests
           path: cdn-template/
 
       - name: Download Windows GUI artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: gui-win
           path: artifacts/gui/win/
 
       - name: Download macOS GUI artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: gui-mac
           path: artifacts/gui/mac/
 
       - name: Download Linux GUI artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: gui-linux
           path: artifacts/gui/linux/
