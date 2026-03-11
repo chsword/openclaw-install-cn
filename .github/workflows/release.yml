@@ -257,38 +257,13 @@ jobs:
           VERSION="${{ steps.ver.outputs.version }}"
           mkdir -p cdn-packages
 
-          # CLI packages
+          # CLI packages only – go to cli/{installer-ver}/ on CDN.
+          # OpenClaw app packages ({openclaw-ver}/openclaw-*) are handled
+          # independently by sync-openclaw.yml.
           (cd artifacts/cli && zip "$OLDPWD/cdn-packages/oclaw-${VERSION}-win32-x64.zip" oclaw-win-x64.exe)
           (cd artifacts/cli && tar -czf "$OLDPWD/cdn-packages/oclaw-${VERSION}-darwin-x64.tar.gz" oclaw-darwin-x64)
           (cd artifacts/cli && tar -czf "$OLDPWD/cdn-packages/oclaw-${VERSION}-darwin-arm64.tar.gz" oclaw-darwin-arm64)
           (cd artifacts/cli && tar -czf "$OLDPWD/cdn-packages/oclaw-${VERSION}-linux-x64.tar.gz" oclaw-linux-x64)
-
-          # GUI packages - locate the actual built files and wrap them
-          WIN_EXE=$(find artifacts/gui/win -name "*.exe" | sort | head -1)
-          MAC_X64_DMG=$(find artifacts/gui/mac -name "*x64*.dmg" | sort | head -1)
-          MAC_ARM64_DMG=$(find artifacts/gui/mac -name "*arm64*.dmg" | sort | head -1)
-          LINUX_APPIMAGE=$(find artifacts/gui/linux -name "*.AppImage" | sort | head -1)
-
-          if [ -n "$WIN_EXE" ]; then
-            (cd "$(dirname "$WIN_EXE")"       && zip     "$OLDPWD/cdn-packages/openclaw-${VERSION}-win32-x64.zip"        "$(basename "$WIN_EXE")")
-          else
-            echo "WARNING: No Windows GUI exe found – openclaw-${VERSION}-win32-x64.zip will be missing"
-          fi
-          if [ -n "$MAC_X64_DMG" ]; then
-            (cd "$(dirname "$MAC_X64_DMG")"   && tar -czf "$OLDPWD/cdn-packages/openclaw-${VERSION}-darwin-x64.tar.gz"   "$(basename "$MAC_X64_DMG")")
-          else
-            echo "WARNING: No macOS x64 dmg found – openclaw-${VERSION}-darwin-x64.tar.gz will be missing"
-          fi
-          if [ -n "$MAC_ARM64_DMG" ]; then
-            (cd "$(dirname "$MAC_ARM64_DMG")" && tar -czf "$OLDPWD/cdn-packages/openclaw-${VERSION}-darwin-arm64.tar.gz" "$(basename "$MAC_ARM64_DMG")")
-          else
-            echo "WARNING: No macOS arm64 dmg found – openclaw-${VERSION}-darwin-arm64.tar.gz will be missing"
-          fi
-          if [ -n "$LINUX_APPIMAGE" ]; then
-            (cd "$(dirname "$LINUX_APPIMAGE")" && tar -czf "$OLDPWD/cdn-packages/openclaw-${VERSION}-linux-x64.tar.gz"   "$(basename "$LINUX_APPIMAGE")")
-          else
-            echo "WARNING: No Linux AppImage found – openclaw-${VERSION}-linux-x64.tar.gz will be missing"
-          fi
 
           echo "CDN packages created:"
           ls -lh cdn-packages/ || echo "(no packages created)"
@@ -296,7 +271,9 @@ jobs:
       - name: Update CDN manifest versions
         run: |
           VERSION="${{ steps.ver.outputs.version }}"
-          # Update openclaw package manifest with new version and actual checksums
+          # Update CLI manifest only.
+          # manifest.json (OpenClaw app versions) is managed independently
+          # by sync-openclaw.yml and is NOT modified here.
           python3 - <<'EOF'
           import json, sys, os, hashlib, glob as _glob
 
@@ -331,42 +308,7 @@ jobs:
               'linux-x64':    checksum_for(f'{cdn_dir}/oclaw-{version}-linux-x64.tar.gz'),
           }
 
-          # Compute checksums for GUI (openclaw) CDN packages
-          gui_checksums = {
-              'win32-x64':    checksum_for(f'{cdn_dir}/openclaw-{version}-win32-x64.zip'),
-              'darwin-x64':   checksum_for(f'{cdn_dir}/openclaw-{version}-darwin-x64.tar.gz'),
-              'darwin-arm64': checksum_for(f'{cdn_dir}/openclaw-{version}-darwin-arm64.tar.gz'),
-              'linux-x64':    checksum_for(f'{cdn_dir}/openclaw-{version}-linux-x64.tar.gz'),
-          }
-
           print(f"CLI checksums: {cli_checksums}")
-          print(f"GUI checksums: {gui_checksums}")
-
-          manifest_path = 'cdn-template/manifest.json'
-          with open(manifest_path, 'r') as f:
-              manifest = json.load(f)
-
-          # Add the new version entry if not already present
-          versions = manifest.get('versions', [])
-          if not any(v['version'] == version for v in versions):
-              new_entry = {
-                  "version": version,
-                  "releaseDate": __import__('datetime').date.today().isoformat(),
-                  "description": f"Release {version}",
-                  "files": {
-                      "win32-x64":    f"openclaw-{version}-win32-x64.zip",
-                      "darwin-x64":   f"openclaw-{version}-darwin-x64.tar.gz",
-                      "darwin-arm64": f"openclaw-{version}-darwin-arm64.tar.gz",
-                      "linux-x64":    f"openclaw-{version}-linux-x64.tar.gz"
-                  },
-                  "checksums": gui_checksums
-              }
-              versions.insert(0, new_entry)
-              manifest['versions'] = versions
-          manifest['latest'] = version
-          with open(manifest_path, 'w') as f:
-              json.dump(manifest, f, indent=2, ensure_ascii=False)
-          print(f"Updated {manifest_path} with version {version}")
 
           # Update CLI manifest
           cli_manifest_path = 'cdn-template/cli-manifest.json'
@@ -483,19 +425,20 @@ except Exception as e:
           | \`manifest.json\` | OpenClaw 包版本清单模板 |
           | \`cli-manifest.json\` | oclaw CLI 版本清单模板 |
 
-          ### 📌 离线安装说明
+          ### 📌 离线安装说明（CLI）
 
-          本次发布的离线安装包支持安装 **OpenClaw ${VERSION}**。
-
-          使用离线（air-gap）模式时，请将本次 GitHub Release 附件中的 CDN 包按以下目录结构放置，并设置环境变量后运行安装脚本：
+          本次发布包含 `oclaw` CLI 工具的离线包。使用离线（air-gap）模式时，请将本次 GitHub Release 附件中的 CLI 包按以下目录结构放置，并设置环境变量后运行安装脚本：
 
           \`\`\`
           openclaw-bundle/
             cli-manifest.json
             cli/${VERSION}/oclaw-${VERSION}-{os}-{arch}.{zip|tar.gz}
-            manifest.json
-            ${VERSION}/openclaw-${VERSION}-{os}-{arch}.{zip|tar.gz}
+            manifest.json              ← 从 CDN 下载（由 sync-openclaw 维护）
+            {openclaw-ver}/openclaw-{openclaw-ver}-{os}-{arch}.{zip|tar.gz}
           \`\`\`
+
+          > OpenClaw 应用安装包（`{openclaw-ver}/openclaw-*`）由 `sync-openclaw.yml` 独立发布，
+          > 请从 CDN 直接下载对应版本，或在 GitHub Actions 页面手动触发 sync-openclaw 以获取特定版本。
 
           **macOS / Linux：**
           \`\`\`bash
@@ -622,11 +565,8 @@ except Exception as e:
           cos_upload_if_new cdn-packages/oclaw-${VERSION}-darwin-arm64.tar.gz cli/${VERSION}/oclaw-${VERSION}-darwin-arm64.tar.gz
           cos_upload_if_new cdn-packages/oclaw-${VERSION}-linux-x64.tar.gz    cli/${VERSION}/oclaw-${VERSION}-linux-x64.tar.gz
 
-          # Upload GUI packages (optional – skipped if the build artifact is absent)
-          [ -f cdn-packages/openclaw-${VERSION}-win32-x64.zip ]        && cos_upload_if_new cdn-packages/openclaw-${VERSION}-win32-x64.zip        ${VERSION}/openclaw-${VERSION}-win32-x64.zip        || true
-          [ -f cdn-packages/openclaw-${VERSION}-darwin-x64.tar.gz ]    && cos_upload_if_new cdn-packages/openclaw-${VERSION}-darwin-x64.tar.gz    ${VERSION}/openclaw-${VERSION}-darwin-x64.tar.gz    || true
-          [ -f cdn-packages/openclaw-${VERSION}-darwin-arm64.tar.gz ]  && cos_upload_if_new cdn-packages/openclaw-${VERSION}-darwin-arm64.tar.gz  ${VERSION}/openclaw-${VERSION}-darwin-arm64.tar.gz  || true
-          [ -f cdn-packages/openclaw-${VERSION}-linux-x64.tar.gz ]     && cos_upload_if_new cdn-packages/openclaw-${VERSION}-linux-x64.tar.gz     ${VERSION}/openclaw-${VERSION}-linux-x64.tar.gz     || true
+          # Note: OpenClaw app packages ({openclaw-ver}/openclaw-*) are uploaded
+          # independently by sync-openclaw.yml – not here.
 
           # Upload install scripts and manifests (always overwrite – these are not versioned)
           coscmd upload scripts/install.sh  install.sh

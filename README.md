@@ -168,8 +168,10 @@ npm run build:all    # Windows / macOS / Linux 全平台
 
 1. 创建对应的版本 Tag
 2. 构建所有平台的 CLI 安装包并上传到 CDN 的 `cli/{version}/` 目录
-3. 更新 `manifest.json` 和 `cli-manifest.json` 的 `latest` 字段和版本列表
-4. 自动刷新 CDN 缓存
+3. 更新 `cli-manifest.json` 的 `latest` 字段和版本列表
+4. 自动刷新 CDN 缓存（CLI 包 + `cli-manifest.json`）
+
+`manifest.json`（OpenClaw 应用包版本）由 `sync-openclaw.yml` 每日自动维护，与安装工具发布独立。
 
 详细发布流程请参考 [docs/deployment.md](./docs/deployment.md)。
 
