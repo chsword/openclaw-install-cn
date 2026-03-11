@@ -71,14 +71,12 @@ jobs:
               entry = next((ve for ve in m.get('versions', []) if ve['version'] == '$VERSION'), None)
               if entry is None:
                   print('false')
-              elif all(v == 'sha256:UNAVAILABLE' for v in entry.get('checksums', {}).values()):
-                  # Previous sync found no assets at all – retry in case upstream
-                  # added binaries since the last attempt.
+              elif any(v == 'sha256:UNAVAILABLE' for v in entry.get('checksums', {}).values()):
+                  # One or more platforms are missing – retry in case upstream
+                  # added those binaries since the last attempt.
                   print('false')
               else:
-                  # At least one platform was packaged; consider the sync done.
-                  # UNAVAILABLE entries mean the upstream release simply did not
-                  # ship that platform's binary (not a transient failure).
+                  # All platforms have real checksums; sync is complete.
                   print('true')
           except Exception as e:
               sys.stderr.write(f'Warning: {e}\n')
@@ -87,9 +85,9 @@ jobs:
           )
           echo "already_present=$PRESENT" >> "$GITHUB_OUTPUT"
           if [ "$PRESENT" = "true" ]; then
-            echo "::notice::OpenClaw $VERSION is already in manifest.json – nothing to do."
+            echo "::notice::OpenClaw $VERSION is already in manifest.json with all platforms – nothing to do."
           else
-            echo "OpenClaw $VERSION is new – will sync to CDN."
+            echo "OpenClaw $VERSION is new or has missing platforms – will sync to CDN."
           fi
 
       # ── 2b. Check if GitHub Release already exists ────────────────────────
@@ -430,24 +428,45 @@ jobs:
           tccli cdn PurgeUrlsCache --Urls "$URLS"
           echo "CDN cache purge submitted."
 
-      # ── 8. Create GitHub Release ──────────────────────────────────────────
-      - name: Create GitHub Release for OpenClaw ${{ steps.detect.outputs.version }}
-        if: steps.check_release.outputs.release_exists == 'false'
+      # ── 8a. Generate release body listing only available packages ────────────
+      - name: Generate release body
+        if: steps.check.outputs.already_present != 'true' || steps.check_release.outputs.release_exists == 'false'
+        env:
+          VERSION: ${{ steps.detect.outputs.version }}
+          TAG:     ${{ steps.detect.outputs.tag }}
+        run: |
+          V="${VERSION}"
+          {
+            echo "OpenClaw ${V} 已从上游 [openclaw/openclaw](https://github.com/openclaw/openclaw/releases/tag/${TAG}) 同步。"
+            echo ""
+            # List only the packages that were actually built
+            PLATFORMS=()
+            [ -f "cdn-packages/openclaw-${V}-win32-x64.zip" ]       && PLATFORMS+=("| \`openclaw-${V}-win32-x64.zip\` | Windows x64 |")
+            [ -f "cdn-packages/openclaw-${V}-darwin-x64.tar.gz" ]   && PLATFORMS+=("| \`openclaw-${V}-darwin-x64.tar.gz\` | macOS Intel x64 |")
+            [ -f "cdn-packages/openclaw-${V}-darwin-arm64.tar.gz" ] && PLATFORMS+=("| \`openclaw-${V}-darwin-arm64.tar.gz\` | macOS Apple Silicon |")
+            [ -f "cdn-packages/openclaw-${V}-linux-x64.tar.gz" ]    && PLATFORMS+=("| \`openclaw-${V}-linux-x64.tar.gz\` | Linux x64 |")
+
+            if [ ${#PLATFORMS[@]} -gt 0 ]; then
+              echo "包含以下平台安装包："
+              echo ""
+              echo "| 文件 | 平台 |"
+              echo "|------|------|"
+              for row in "${PLATFORMS[@]}"; do echo "$row"; done
+            else
+              echo "> ⚠️ 上游 ${TAG} 尚未发布二进制安装包，待上游更新后将自动同步。"
+            fi
+          } > /tmp/release-body.md
+          echo "=== Release body ==="
+          cat /tmp/release-body.md
+
+      # ── 8b. Create or update GitHub Release ──────────────────────────────────
+      - name: Create or update GitHub Release for OpenClaw ${{ steps.detect.outputs.version }}
+        if: steps.check.outputs.already_present != 'true' || steps.check_release.outputs.release_exists == 'false'
         uses: softprops/action-gh-release@v2.5.0
         with:
           tag_name: ${{ steps.detect.outputs.release_tag }}
           name: "OpenClaw Offline ${{ steps.detect.outputs.version }}"
-          body: |
-            OpenClaw ${{ steps.detect.outputs.version }} 已从上游 [openclaw/openclaw](https://github.com/openclaw/openclaw/releases/tag/${{ steps.detect.outputs.tag }}) 同步。
-
-            包含以下平台安装包：
-
-            | 文件 | 平台 |
-            |------|------|
-            | `openclaw-${{ steps.detect.outputs.version }}-win32-x64.zip` | Windows x64 |
-            | `openclaw-${{ steps.detect.outputs.version }}-darwin-x64.tar.gz` | macOS Intel x64 |
-            | `openclaw-${{ steps.detect.outputs.version }}-darwin-arm64.tar.gz` | macOS Apple Silicon |
-            | `openclaw-${{ steps.detect.outputs.version }}-linux-x64.tar.gz` | Linux x64 |
+          body_path: /tmp/release-body.md
           draft: false
           prerelease: false
           fail_on_unmatched_files: false
