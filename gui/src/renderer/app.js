@@ -41,6 +41,7 @@ let latestVersion = null;
 let busy = false;
 let logEntries = [];
 let logRefreshTimer = null;
+let versionCheckTimer = null;
 
 /* ── Helpers ───────────────────────────────────────────────────────────────── */
 function showMessage(msg, type = 'info') {
@@ -198,6 +199,21 @@ async function saveSettings() {
   showMessage('设置已保存。', 'success');
 }
 
+/* ── Periodic version check ─────────────────────────────────────────────────── */
+const VERSION_CHECK_INTERVAL = 60 * 60 * 1000; // 1 hour
+
+function startVersionCheck() {
+  stopVersionCheck();
+  versionCheckTimer = setInterval(() => { checkLatest().catch(() => {}); }, VERSION_CHECK_INTERVAL);
+}
+
+function stopVersionCheck() {
+  if (versionCheckTimer) {
+    clearInterval(versionCheckTimer);
+    versionCheckTimer = null;
+  }
+}
+
 /* ── Log viewer ────────────────────────────────────────────────────────────── */
 function startLogAutoRefresh() {
   stopLogAutoRefresh();
@@ -350,4 +366,6 @@ window.onunhandledrejection = function (event) {
   await loadStatus();
   // Auto-check for updates in background (non-blocking)
   checkLatest().catch(() => {});
+  // Schedule periodic version checks every hour
+  startVersionCheck();
 })();
