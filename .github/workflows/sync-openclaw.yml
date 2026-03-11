@@ -54,9 +54,8 @@ jobs:
               | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'])")
             VERSION="${TAG#v}"
           fi
-          echo "version=$VERSION"               >> "$GITHUB_OUTPUT"
-          echo "tag=$TAG"                        >> "$GITHUB_OUTPUT"
-          echo "release_tag=openclaw-${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG"         >> "$GITHUB_OUTPUT"
           echo "Upstream OpenClaw version: $VERSION (tag: $TAG)"
 
       # ── 2. Skip if this version is already in manifest.json ───────────────
@@ -90,24 +89,9 @@ jobs:
             echo "OpenClaw $VERSION is new or has missing platforms – will sync to CDN."
           fi
 
-      # ── 2b. Check if GitHub Release already exists ────────────────────────
-      - name: Check if GitHub Release exists
-        id: check_release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="${{ steps.detect.outputs.release_tag }}"
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "release_exists=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::GitHub Release $TAG already exists – skipping release creation."
-          else
-            echo "release_exists=false" >> "$GITHUB_OUTPUT"
-            echo "GitHub Release $TAG does not exist – will create."
-          fi
-
       # ── 3. Download all release assets from openclaw/openclaw ─────────────
       - name: Download upstream release assets
-        if: steps.check.outputs.already_present != 'true' || steps.check_release.outputs.release_exists == 'false'
+        if: steps.check.outputs.already_present != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG:      ${{ steps.detect.outputs.tag }}
@@ -157,7 +141,7 @@ jobs:
       # The upstream release may use different file-name conventions; we try
       # several patterns per platform and fall back gracefully.
       - name: Repackage upstream assets for CDN
-        if: steps.check.outputs.already_present != 'true' || steps.check_release.outputs.release_exists == 'false'
+        if: steps.check.outputs.already_present != 'true'
         env:
           VERSION: ${{ steps.detect.outputs.version }}
         run: |
@@ -428,55 +412,7 @@ jobs:
           tccli cdn PurgeUrlsCache --Urls "$URLS"
           echo "CDN cache purge submitted."
 
-      # ── 8a. Generate release body listing only available packages ────────────
-      - name: Generate release body
-        if: steps.check.outputs.already_present != 'true' || steps.check_release.outputs.release_exists == 'false'
-        env:
-          VERSION: ${{ steps.detect.outputs.version }}
-          TAG:     ${{ steps.detect.outputs.tag }}
-        run: |
-          V="${VERSION}"
-          {
-            echo "OpenClaw ${V} 已从上游 [openclaw/openclaw](https://github.com/openclaw/openclaw/releases/tag/${TAG}) 同步。"
-            echo ""
-            # List only the packages that were actually built
-            PLATFORMS=()
-            [ -f "cdn-packages/openclaw-${V}-win32-x64.zip" ]       && PLATFORMS+=("| \`openclaw-${V}-win32-x64.zip\` | Windows x64 |")
-            [ -f "cdn-packages/openclaw-${V}-darwin-x64.tar.gz" ]   && PLATFORMS+=("| \`openclaw-${V}-darwin-x64.tar.gz\` | macOS Intel x64 |")
-            [ -f "cdn-packages/openclaw-${V}-darwin-arm64.tar.gz" ] && PLATFORMS+=("| \`openclaw-${V}-darwin-arm64.tar.gz\` | macOS Apple Silicon |")
-            [ -f "cdn-packages/openclaw-${V}-linux-x64.tar.gz" ]    && PLATFORMS+=("| \`openclaw-${V}-linux-x64.tar.gz\` | Linux x64 |")
-
-            if [ ${#PLATFORMS[@]} -gt 0 ]; then
-              echo "包含以下平台安装包："
-              echo ""
-              echo "| 文件 | 平台 |"
-              echo "|------|------|"
-              for row in "${PLATFORMS[@]}"; do echo "$row"; done
-            else
-              echo "> ⚠️ 上游 ${TAG} 尚未发布二进制安装包，待上游更新后将自动同步。"
-            fi
-          } > /tmp/release-body.md
-          echo "=== Release body ==="
-          cat /tmp/release-body.md
-
-      # ── 8b. Create or update GitHub Release ──────────────────────────────────
-      - name: Create or update GitHub Release for OpenClaw ${{ steps.detect.outputs.version }}
-        if: steps.check.outputs.already_present != 'true' || steps.check_release.outputs.release_exists == 'false'
-        uses: softprops/action-gh-release@v2.5.0
-        with:
-          tag_name: ${{ steps.detect.outputs.release_tag }}
-          name: "OpenClaw Offline ${{ steps.detect.outputs.version }}"
-          body_path: /tmp/release-body.md
-          draft: false
-          prerelease: false
-          fail_on_unmatched_files: false
-          files: |
-            cdn-packages/openclaw-${{ steps.detect.outputs.version }}-win32-x64.zip
-            cdn-packages/openclaw-${{ steps.detect.outputs.version }}-darwin-x64.tar.gz
-            cdn-packages/openclaw-${{ steps.detect.outputs.version }}-darwin-arm64.tar.gz
-            cdn-packages/openclaw-${{ steps.detect.outputs.version }}-linux-x64.tar.gz
-
-      # ── 9. Commit updated manifest.json back to main ──────────────────────
+      # ── 8. Commit updated manifest.json back to main ──────────────────────
       # cdn-template/ is in ci.yml's paths-ignore so this commit won't
       # retrigger the CI workflow.
       - name: Commit manifest.json update
