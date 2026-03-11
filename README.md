@@ -90,20 +90,28 @@ Commands:
   status  [options]   显示当前安装状态和版本信息
   config  [options]   查看或修改 oclaw 配置
 
+Global options:
+  --verbose           启用详细/调试输出
+
 install options:
-  --version <ver>     安装指定版本（默认：最新版）
-  --dir <path>        覆盖安装目录
-  --force             强制重新安装（即使版本相同）
+  --version <ver>         安装指定版本（默认：最新版）
+  --dir <path>            覆盖安装目录
+  --force                 强制重新安装（即使版本相同）
+  --local-package <path>  从本地目录或压缩包安装（离线模式）
 
 upgrade options:
   --check             仅检查更新，不执行升级
+  --json              以 JSON 格式输出结果
 
 status options:
   --check-updates     同时查询 CDN 上的最新版本
+  --json              以 JSON 格式输出结果
 
 config options:
   --dir <path>        设置安装目录
   --reset             重置为默认配置
+  --list              列出当前配置（默认行为）
+  --json              以 JSON 格式输出结果
 ```
 
 ### 配置文件位置

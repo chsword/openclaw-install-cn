@@ -7,11 +7,15 @@
 ├── manifest.json          # OpenClaw 包版本清单
 ├── cli-manifest.json      # oclaw CLI 版本清单
 │
-├── 1.0.0/                 # OpenClaw v1.0.0 包目录
-│   ├── openclaw-1.0.0-win32-x64.zip
-│   ├── openclaw-1.0.0-darwin-x64.tar.gz
-│   ├── openclaw-1.0.0-darwin-arm64.tar.gz
-│   └── openclaw-1.0.0-linux-x64.tar.gz
+├── install.sh             # macOS/Linux 一键安装脚本
+├── install.ps1            # Windows 一键安装脚本
+│
+├── pkg/                   # OpenClaw 应用包目录（由 sync-openclaw.yml 管理）
+│   └── 1.0.0/             # OpenClaw v1.0.0 包目录
+│       ├── openclaw-1.0.0-win32-x64.zip
+│       ├── openclaw-1.0.0-darwin-x64.tar.gz
+│       ├── openclaw-1.0.0-darwin-arm64.tar.gz
+│       └── openclaw-1.0.0-linux-x64.tar.gz
 │
 ├── cli/                   # oclaw CLI 包目录
 │   └── 1.0.0/
@@ -20,8 +24,13 @@
 │       ├── oclaw-1.0.0-darwin-arm64.tar.gz
 │       └── oclaw-1.0.0-linux-x64.tar.gz
 │
-├── install.sh             # macOS/Linux 一键安装脚本
-└── install.ps1            # Windows 一键安装脚本
+└── gui/                   # GUI 离线安装包目录
+    └── 1.0.0/
+        ├── openclaw-gui-setup-1.0.0-x64.exe
+        ├── openclaw-gui-1.0.0-win-x64.exe
+        ├── openclaw-gui-1.0.0-mac-x64.dmg
+        ├── openclaw-gui-1.0.0-mac-arm64.dmg
+        └── openclaw-gui-1.0.0-linux-x64.AppImage
 ```
 
 ## manifest.json 格式说明
@@ -51,11 +60,11 @@
 
 ## 发布新版本步骤
 
-1. 从 [openclaw.ai](https://openclaw.ai) 下载各平台的 OpenClaw 安装包
-2. 将包重命名为 `openclaw-{version}-{platform}-{arch}.{ext}` 格式
-3. 上传到 CDN 的 `{version}/` 目录
-4. 更新 `manifest.json` 中的 `latest` 字段和 `versions` 数组
-5. 用户运行 `oclaw upgrade` 即可自动获取更新
+OpenClaw 应用包（`pkg/` 目录）由 `sync-openclaw.yml` 工作流每日自动同步，无需手动操作。如需手动触发，可在 Actions 页面运行 `Sync OpenClaw Upstream Release` 工作流。
+
+oclaw CLI 和 GUI 安装包（`cli/` 和 `gui/` 目录）由 `release.yml` 工作流在发布新版本时自动构建和上传。
+
+详细发布流程请参考 [deployment.md](../docs/deployment.md)。
 
 ## 腾讯云 COS 配置建议
 

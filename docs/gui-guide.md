@@ -125,15 +125,15 @@ npm start
 
 | 配置项 | 说明 | 示例 |
 |--------|------|------|
-| **安装目录** | OpenClaw 的安装路径（留空使用默认路径） | `C:\Users\user\AppData\Local\openclaw` |
+| **安装目录** | OpenClaw 的安装路径（留空使用默认路径） | `C:\Users\user\AppData\Local\OpenClaw` |
 
 ### 默认安装目录
 
 | 操作系统 | 默认路径 |
 |---------|---------|
-| Windows | `%LOCALAPPDATA%\openclaw` |
-| macOS | `~/Library/Application Support/openclaw` |
-| Linux | `~/.local/share/openclaw` |
+| Windows | `%LOCALAPPDATA%\OpenClaw` |
+| macOS | `~/Library/Application Support/OpenClaw` |
+| Linux | `~/.openclaw` |
 
 ### 操作步骤
 
@@ -221,9 +221,9 @@ npm start
 
 | 操作系统 | 日志路径 |
 |---------|---------|
-| Windows | `%USERPROFILE%\.oclaw\logs\` |
-| macOS | `~/.oclaw/logs/` |
-| Linux | `~/.oclaw/logs/` |
+| Windows | `%APPDATA%\OpenClaw Installer\logs\error.log` |
+| macOS | `~/Library/Logs/OpenClaw Installer/error.log` |
+| Linux | `~/.config/OpenClaw Installer/logs/error.log` |
 
 可通过日志面板中的「导出」按钮将日志保存到指定位置。
 
