@@ -586,10 +586,10 @@ jobs:
           # independently by sync-openclaw.yml – not here.
 
           # Upload GUI offline installer packages to gui/{VERSION}/ on COS.
-          # Windows: NSIS installer and portable exe (top-level only, skip win-unpacked/).
+          # Windows: NSIS installer and portable exe (search recursively, skip win-unpacked/).
           # macOS: DMG disk images (x64 and arm64).
           # Linux: AppImage portable executable.
-          find artifacts/gui/win/ -maxdepth 1 -name "*.exe" | while read -r f; do
+          find artifacts/gui/win/ -type f -name "*.exe" ! -path "*/win-unpacked/*" | while read -r f; do
             fname="$(basename "$f")"
             cos_upload_if_new "$f" "gui/${VERSION}/${fname}"
           done
