@@ -131,7 +131,7 @@ async function runInstall(options = {}) {
       archivePath = localPath;
       // Try to derive the version from the filename (e.g. openclaw-1.2.3-linux-x64.tar.gz)
       const basename = path.basename(localPath);
-      const versionMatch = basename.match(/^openclaw-(\d+\.\d+[\.\d]*(?:-[^-.]+)?)-/);
+      const versionMatch = basename.match(/^openclaw-(\d+(?:\.\d+)*)-/);
       const detectedVersion = versionMatch ? versionMatch[1] : 'local';
       versionInfo = { version: detectedVersion, description: null };
     }
