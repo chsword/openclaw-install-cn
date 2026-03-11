@@ -1,0 +1,471 @@
+name: Manual Test – Linux/macOS CLI (offline install & upgrade)
+
+# Manually triggered workflow that validates the Unix bootstrap installer
+# (scripts/install.sh) and the oclaw CLI in offline / air-gap mode on both
+# Linux and macOS runners.
+#
+# What is tested:
+#   1. Build the oclaw CLI binary from source (oclaw-linux-x64 / oclaw-darwin-x64).
+#   2. Assemble a local offline bundle that mirrors the CDN structure.
+#   3. Run install.sh with OCLAW_LOCAL_BUNDLE=<bundle> and OCLAW_CDN pointing at
+#      an unreachable address to prove NO external network access is required.
+#   4. Verify oclaw is installed and `oclaw --version` returns the expected CLI version.
+#   5. Verify `oclaw status` shows the mock OpenClaw app as installed at the
+#      correct version.
+#   6. Verify the mock openclaw command is present in the install directory.
+#   7. Simulate an upgrade by running `oclaw install --local-package <new-bundle>`
+#      with a newer mock OpenClaw version.
+#   8. Verify `oclaw status` reflects the upgraded version.
+#   9. Verify the upgraded mock openclaw command reports the new version.
+#
+# Offline guarantee:
+#   OCLAW_CDN=http://oclaw-unreachable.invalid is set for every oclaw CLI call,
+#   and OCLAW_LOCAL_BUNDLE directs install.sh to the pre-assembled bundle.
+#   Any accidental CDN request would immediately fail with a DNS error, causing
+#   the workflow step to fail.
+
+on:
+  workflow_dispatch:
+    inputs:
+      openclaw_initial_version:
+        description: 'Initial mock OpenClaw app version to install (e.g. 2026.3.8) – must be a date-based OpenClaw version, NOT the CLI version'
+        required: false
+        default: '2026.3.8'
+      openclaw_upgrade_version:
+        description: 'Upgraded mock OpenClaw app version (e.g. 2026.3.9) – must be a date-based OpenClaw version, NOT the CLI version'
+        required: false
+        default: '2026.3.9'
+
+jobs:
+  # ── Linux / macOS offline install & upgrade end-to-end test ───────────────
+  test-unix-cli-offline:
+    name: ${{ matrix.os }} CLI – offline install & upgrade
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    env:
+      # Point every oclaw CLI call at an unreachable address so accidental CDN
+      # requests fail immediately rather than hanging.
+      OCLAW_CDN: http://oclaw-unreachable.invalid
+
+    steps:
+      # ── 1. Checkout ─────────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── 2. Set up Node.js ────────────────────────────────────────────────────
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: cli/package-lock.json
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        id: cache-node-modules
+        with:
+          path: cli/node_modules
+          key: ${{ runner.os }}-node20-cli-node-modules-${{ hashFiles('cli/package-lock.json') }}
+
+      - name: Install CLI dependencies
+        if: steps.cache-node-modules.outputs.cache-hit != 'true'
+        run: npm ci
+        working-directory: cli
+
+      # ── 3. Build CLI binary for the current platform ─────────────────────────
+      - name: Build Linux CLI binary
+        if: runner.os == 'Linux'
+        run: npm run build:linux
+        working-directory: cli
+
+      - name: Build macOS CLI binary (x64)
+        if: runner.os == 'macOS'
+        run: npm run build:mac-x64
+        working-directory: cli
+
+      - name: Smoke-test built binary
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            BIN="./cli/dist/oclaw-linux-x64"
+          else
+            BIN="./cli/dist/oclaw-darwin-x64"
+          fi
+          chmod +x "$BIN"
+          VER=$("$BIN" --version 2>&1)
+          echo "Built oclaw version: $VER"
+          if [ -z "$VER" ]; then
+            echo "::error::Binary did not return a version"
+            exit 1
+          fi
+
+      # ── 4. Read CLI version from package.json ────────────────────────────────
+      - name: Read CLI version
+        id: cli_ver
+        run: |
+          V=$(node -e "process.stdout.write(require('./cli/package.json').version)")
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "CLI version: $V"
+
+      # ── 5. Determine platform identifiers ────────────────────────────────────
+      - name: Determine platform identifiers
+        id: platform
+        run: |
+          OS_NAME=$(uname -s | tr '[:upper:]' '[:lower:]')
+          ARCH_NAME=$(uname -m)
+          case "$ARCH_NAME" in
+            x86_64)  ARCH_NAME="x64"   ;;
+            aarch64) ARCH_NAME="arm64" ;;
+            arm64)   ARCH_NAME="arm64" ;;
+            *)       ARCH_NAME="x64"   ;;
+          esac
+          echo "os_name=$OS_NAME"   >> "$GITHUB_OUTPUT"
+          echo "arch_name=$ARCH_NAME" >> "$GITHUB_OUTPUT"
+          echo "Platform: ${OS_NAME}-${ARCH_NAME}"
+
+          # Resolve the built binary path
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            echo "bin_path=cli/dist/oclaw-linux-x64" >> "$GITHUB_OUTPUT"
+          else
+            echo "bin_path=cli/dist/oclaw-darwin-x64" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ── 6. Create offline bundles ────────────────────────────────────────────
+      # Two bundles are created:
+      #   $RUNNER_TEMP/oclaw-test-bundle         – initial install  (APP_INITIAL)
+      #   $RUNNER_TEMP/oclaw-upgrade-bundle      – upgrade install  (APP_UPGRADE)
+      #
+      # Each bundle mirrors the CDN directory layout expected by install.sh and
+      # `oclaw install --local-package`:
+      #
+      #   {bundle}/
+      #     cli-manifest.json                              ← CLI version index
+      #     cli/{cliVer}/oclaw-{cliVer}-{os}-{arch}.tar.gz  ← CLI binary (oclaw inside)
+      #     manifest.json                                  ← OpenClaw app version index
+      #     pkg/{appVer}/openclaw-{appVer}-{os}-{arch}.tar.gz ← Mock openclaw app
+      - name: Create offline bundles
+        id: bundles
+        env:
+          CLI_VERSION:  ${{ steps.cli_ver.outputs.version }}
+          OS_NAME:      ${{ steps.platform.outputs.os_name }}
+          ARCH_NAME:    ${{ steps.platform.outputs.arch_name }}
+          BIN_PATH:     ${{ steps.platform.outputs.bin_path }}
+          APP_INITIAL:  ${{ inputs.openclaw_initial_version }}
+          APP_UPGRADE:  ${{ inputs.openclaw_upgrade_version }}
+        run: |
+          set -euo pipefail
+
+          create_bundle() {
+            local bundle_dir="$1"
+            local app_ver="$2"
+
+            echo ""
+            echo "=== Creating bundle: $bundle_dir (OpenClaw $app_ver) ==="
+            mkdir -p "$bundle_dir"
+
+            # ── (a) CLI manifest ──────────────────────────────────────────────
+            cat > "$bundle_dir/cli-manifest.json" <<EOF
+          {
+            "latest": "$CLI_VERSION",
+            "versions": [
+              {
+                "version": "$CLI_VERSION",
+                "files": { "${OS_NAME}-${ARCH_NAME}": "oclaw-${CLI_VERSION}-${OS_NAME}-${ARCH_NAME}.tar.gz" }
+              }
+            ]
+          }
+          EOF
+            echo "  [cli-manifest.json] written"
+
+            # ── (b) CLI binary tar.gz ─────────────────────────────────────────
+            # install.sh searches for 'oclaw' inside the extracted archive,
+            # so the tar entry must be named 'oclaw'.
+            local cli_pkg_dir="$bundle_dir/cli/$CLI_VERSION"
+            mkdir -p "$cli_pkg_dir"
+
+            local tmp_bin_dir
+            tmp_bin_dir=$(mktemp -d)
+            cp "$BIN_PATH" "$tmp_bin_dir/oclaw"
+            chmod +x "$tmp_bin_dir/oclaw"
+
+            local cli_tar="$cli_pkg_dir/oclaw-${CLI_VERSION}-${OS_NAME}-${ARCH_NAME}.tar.gz"
+            tar -czf "$cli_tar" -C "$tmp_bin_dir" oclaw
+            rm -rf "$tmp_bin_dir"
+            echo "  [cli/$CLI_VERSION/oclaw-$CLI_VERSION-${OS_NAME}-${ARCH_NAME}.tar.gz] written ($(wc -c < "$cli_tar") bytes)"
+
+            # ── (c) OpenClaw app manifest ──────────────────────────────────────
+            cat > "$bundle_dir/manifest.json" <<EOF
+          {
+            "latest": "$app_ver",
+            "versions": [
+              {
+                "version": "$app_ver",
+                "releaseDate": "$(date +%Y-%m-%d)",
+                "description": "Mock OpenClaw $app_ver (offline test)",
+                "files": { "${OS_NAME}-${ARCH_NAME}": "openclaw-${app_ver}-${OS_NAME}-${ARCH_NAME}.tar.gz" }
+              }
+            ]
+          }
+          EOF
+            echo "  [manifest.json] written"
+
+            # ── (d) Mock OpenClaw app tar.gz ─────────────────────────────────
+            # Create a tiny openclaw shell script that echoes its version.
+            local app_pkg_dir="$bundle_dir/pkg/$app_ver"
+            mkdir -p "$app_pkg_dir"
+
+            local tmp_app_dir
+            tmp_app_dir=$(mktemp -d)
+            local mock_bin="$tmp_app_dir/openclaw"
+            printf '#!/bin/sh\necho "OpenClaw %s"\n' "$app_ver" > "$mock_bin"
+            chmod +x "$mock_bin"
+
+            local app_tar="$app_pkg_dir/openclaw-${app_ver}-${OS_NAME}-${ARCH_NAME}.tar.gz"
+            tar -czf "$app_tar" -C "$tmp_app_dir" openclaw
+            rm -rf "$tmp_app_dir"
+            echo "  [pkg/$app_ver/openclaw-$app_ver-${OS_NAME}-${ARCH_NAME}.tar.gz] written"
+
+            echo "Bundle layout:"
+            find "$bundle_dir" | sed "s|$bundle_dir|.|"
+          }
+
+          INITIAL_BUNDLE="$RUNNER_TEMP/oclaw-test-bundle"
+          UPGRADE_BUNDLE="$RUNNER_TEMP/oclaw-upgrade-bundle"
+
+          create_bundle "$INITIAL_BUNDLE" "$APP_INITIAL"
+          create_bundle "$UPGRADE_BUNDLE" "$APP_UPGRADE"
+
+          echo "initial_bundle=$INITIAL_BUNDLE" >> "$GITHUB_OUTPUT"
+          echo "upgrade_bundle=$UPGRADE_BUNDLE"  >> "$GITHUB_OUTPUT"
+
+      # ── 7. Run install.sh with local bundle (offline) ───────────────────────
+      # OCLAW_LOCAL_BUNDLE directs the installer to the pre-assembled bundle.
+      # OCLAW_CDN is set to an unreachable address to catch any stray network calls.
+      - name: Run install.sh (offline – local bundle)
+        env:
+          INITIAL_BUNDLE: ${{ steps.bundles.outputs.initial_bundle }}
+          OCLAW_INSTALL_DIR: ${{ runner.temp }}/openclaw-app
+          OCLAW_BIN_DIR: ${{ runner.temp }}/oclaw-bin
+        run: |
+          set -euo pipefail
+          echo "Running install.sh with local bundle: $INITIAL_BUNDLE"
+          echo "Install dir: $OCLAW_INSTALL_DIR"
+          echo "Bin dir:     $OCLAW_BIN_DIR"
+          echo "CDN base:    http://oclaw-unreachable.invalid (should never be reached)"
+
+          export OCLAW_LOCAL_BUNDLE="$INITIAL_BUNDLE"
+
+          bash scripts/install.sh
+          echo "install.sh completed successfully"
+
+      # ── 8. Verify oclaw CLI is installed and version is correct ──────────────
+      - name: Verify oclaw CLI version
+        env:
+          EXPECTED_CLI_VERSION: ${{ steps.cli_ver.outputs.version }}
+          OCLAW_BIN_DIR: ${{ runner.temp }}/oclaw-bin
+        run: |
+          OCLAW_BIN="$OCLAW_BIN_DIR/oclaw"
+
+          if [ ! -x "$OCLAW_BIN" ]; then
+            echo "::error::oclaw not found or not executable at: $OCLAW_BIN"
+            exit 1
+          fi
+          echo "oclaw found at: $OCLAW_BIN"
+
+          VER=$("$OCLAW_BIN" --version 2>&1)
+          echo "oclaw --version output: $VER"
+
+          if [ -z "$VER" ]; then
+            echo "::error::oclaw --version returned no output"
+            exit 1
+          fi
+          if [ "$VER" != "$EXPECTED_CLI_VERSION" ]; then
+            echo "::error::Expected CLI version $EXPECTED_CLI_VERSION but got: $VER"
+            exit 1
+          fi
+          echo "✔ oclaw CLI version is correct: $VER"
+
+      # ── 9. Verify oclaw status shows the installed OpenClaw app version ───────
+      # SUCCESS CRITERION: installedVersion must be the OpenClaw APP version
+      # (e.g. '2026.3.8'), NOT the oclaw CLI version (e.g. '1.0.3').
+      # Using the CLI version as a success criterion would be INCORRECT.
+      - name: Verify oclaw status (initial install)
+        env:
+          OCLAW_INSTALL_DIR: ${{ runner.temp }}/openclaw-app
+          OCLAW_BIN_DIR: ${{ runner.temp }}/oclaw-bin
+          EXPECTED_APP_VERSION: ${{ inputs.openclaw_initial_version }}
+          CLI_VERSION: ${{ steps.cli_ver.outputs.version }}
+        run: |
+          OCLAW_BIN="$OCLAW_BIN_DIR/oclaw"
+
+          STATUS_JSON=$("$OCLAW_BIN" status --json 2>&1)
+          echo "oclaw status --json output:"
+          echo "$STATUS_JSON"
+
+          INSTALLED=$(echo "$STATUS_JSON" | node -e "const d=require('fs').readFileSync('/dev/stdin','utf8'); const o=JSON.parse(d); process.stdout.write(String(o.installed))")
+          INSTALLED_VER=$(echo "$STATUS_JSON" | node -e "const d=require('fs').readFileSync('/dev/stdin','utf8'); const o=JSON.parse(d); process.stdout.write(o.installedVersion||'')")
+
+          if [ "$INSTALLED" != "true" ]; then
+            echo "::error::oclaw status reports OpenClaw is NOT installed!"
+            exit 1
+          fi
+
+          # ── Correct success criterion: OpenClaw APP version ──────────────────
+          # installedVersion must match the expected OpenClaw app version.
+          if [ "$INSTALLED_VER" != "$EXPECTED_APP_VERSION" ]; then
+            echo "::error::Expected installed version $EXPECTED_APP_VERSION but got: $INSTALLED_VER"
+            exit 1
+          fi
+          echo "  ✔ CORRECT: installedVersion = '$INSTALLED_VER' (OpenClaw app version)"
+
+          # ── Guard against incorrect success criterion: CLI version ────────────
+          # If installedVersion equals the CLI version, the install wrote the
+          # wrong version marker – this would be a bug, not success.
+          if [ "$INSTALLED_VER" = "$CLI_VERSION" ]; then
+            echo "::error::INCORRECT: installedVersion '$INSTALLED_VER' matches the CLI version – success must be based on the OpenClaw app version, not the CLI version"
+            exit 1
+          fi
+          echo "  ✔ CORRECT: installedVersion '$INSTALLED_VER' is distinct from CLI version '$CLI_VERSION'"
+          echo "  ✔ OpenClaw $INSTALLED_VER is installed"
+
+      # ── 10. Verify mock openclaw command exists in install dir ──────────────
+      - name: Verify openclaw command in install directory
+        env:
+          OCLAW_INSTALL_DIR: ${{ runner.temp }}/openclaw-app
+          EXPECTED_APP_VERSION: ${{ inputs.openclaw_initial_version }}
+        run: |
+          OPENCLAW_CMD="$OCLAW_INSTALL_DIR/openclaw"
+
+          if [ ! -x "$OPENCLAW_CMD" ]; then
+            echo "::error::openclaw command not found or not executable in: $OCLAW_INSTALL_DIR"
+            echo "Contents of install dir:"
+            ls -la "$OCLAW_INSTALL_DIR" 2>/dev/null || echo "(empty or missing)"
+            exit 1
+          fi
+
+          OUTPUT=$("$OPENCLAW_CMD" 2>&1)
+          echo "openclaw command output: $OUTPUT"
+
+          if ! echo "$OUTPUT" | grep -qF "$EXPECTED_APP_VERSION"; then
+            echo "::error::Expected version $EXPECTED_APP_VERSION in openclaw output but got: $OUTPUT"
+            exit 1
+          fi
+          echo "✔ openclaw command is available and reports correct version: $OUTPUT"
+
+      # ── 11. Simulate upgrade: install newer version via local bundle ──────────
+      - name: Install upgraded OpenClaw version (offline, local bundle)
+        env:
+          OCLAW_INSTALL_DIR: ${{ runner.temp }}/openclaw-app
+          OCLAW_BIN_DIR: ${{ runner.temp }}/oclaw-bin
+          UPGRADE_BUNDLE: ${{ steps.bundles.outputs.upgrade_bundle }}
+          UPGRADE_VERSION: ${{ inputs.openclaw_upgrade_version }}
+        run: |
+          OCLAW_BIN="$OCLAW_BIN_DIR/oclaw"
+
+          echo "Upgrading OpenClaw to $UPGRADE_VERSION from local bundle: $UPGRADE_BUNDLE"
+
+          "$OCLAW_BIN" install \
+            --local-package "$UPGRADE_BUNDLE" \
+            --dir "$OCLAW_INSTALL_DIR"
+
+          echo "✔ Upgrade command completed successfully"
+
+      # ── 12. Verify version after upgrade ───────────────────────────────────
+      # SUCCESS CRITERION: installedVersion must reflect the new OpenClaw APP
+      # version after upgrade, NOT the CLI version.
+      - name: Verify oclaw status (after upgrade)
+        env:
+          OCLAW_INSTALL_DIR: ${{ runner.temp }}/openclaw-app
+          OCLAW_BIN_DIR: ${{ runner.temp }}/oclaw-bin
+          EXPECTED_APP_VERSION: ${{ inputs.openclaw_upgrade_version }}
+          CLI_VERSION: ${{ steps.cli_ver.outputs.version }}
+        run: |
+          OCLAW_BIN="$OCLAW_BIN_DIR/oclaw"
+
+          STATUS_JSON=$("$OCLAW_BIN" status --json 2>&1)
+          echo "oclaw status --json output (after upgrade):"
+          echo "$STATUS_JSON"
+
+          INSTALLED=$(echo "$STATUS_JSON" | node -e "const d=require('fs').readFileSync('/dev/stdin','utf8'); const o=JSON.parse(d); process.stdout.write(String(o.installed))")
+          INSTALLED_VER=$(echo "$STATUS_JSON" | node -e "const d=require('fs').readFileSync('/dev/stdin','utf8'); const o=JSON.parse(d); process.stdout.write(o.installedVersion||'')")
+
+          if [ "$INSTALLED" != "true" ]; then
+            echo "::error::oclaw status reports OpenClaw is NOT installed after upgrade!"
+            exit 1
+          fi
+
+          # ── Correct success criterion: OpenClaw APP version ──────────────────
+          if [ "$INSTALLED_VER" != "$EXPECTED_APP_VERSION" ]; then
+            echo "::error::Expected upgraded version $EXPECTED_APP_VERSION but got: $INSTALLED_VER"
+            exit 1
+          fi
+          echo "  ✔ CORRECT: installedVersion = '$INSTALLED_VER' (OpenClaw app version after upgrade)"
+
+          # ── Guard against incorrect success criterion: CLI version ────────────
+          if [ "$INSTALLED_VER" = "$CLI_VERSION" ]; then
+            echo "::error::INCORRECT: installedVersion '$INSTALLED_VER' matches the CLI version – success must be based on the OpenClaw app version, not the CLI version"
+            exit 1
+          fi
+          echo "  ✔ CORRECT: installedVersion '$INSTALLED_VER' is distinct from CLI version '$CLI_VERSION'"
+          echo "  ✔ OpenClaw successfully upgraded to $INSTALLED_VER"
+
+      # ── 13. Verify openclaw command reports upgraded version ─────────────────
+      - name: Verify openclaw command after upgrade
+        env:
+          OCLAW_INSTALL_DIR: ${{ runner.temp }}/openclaw-app
+          EXPECTED_APP_VERSION: ${{ inputs.openclaw_upgrade_version }}
+        run: |
+          OPENCLAW_CMD="$OCLAW_INSTALL_DIR/openclaw"
+
+          if [ ! -x "$OPENCLAW_CMD" ]; then
+            echo "::error::openclaw command not found in install dir after upgrade: $OCLAW_INSTALL_DIR"
+            exit 1
+          fi
+
+          OUTPUT=$("$OPENCLAW_CMD" 2>&1)
+          echo "openclaw command output after upgrade: $OUTPUT"
+
+          if ! echo "$OUTPUT" | grep -qF "$EXPECTED_APP_VERSION"; then
+            echo "::error::Expected version $EXPECTED_APP_VERSION after upgrade but got: $OUTPUT"
+            exit 1
+          fi
+          echo "✔ openclaw command reports upgraded version: $OUTPUT"
+
+      # ── 14. Print final summary ─────────────────────────────────────────────
+      - name: Print test summary
+        if: success()
+        env:
+          CLI_VERSION:          ${{ steps.cli_ver.outputs.version }}
+          APP_INITIAL_VERSION:  ${{ inputs.openclaw_initial_version }}
+          APP_UPGRADE_VERSION:  ${{ inputs.openclaw_upgrade_version }}
+        run: |
+          echo ""
+          echo "  ✔ All offline ${{ matrix.os }} CLI tests passed!"
+          echo ""
+          echo "  SUCCESS CRITERION (OpenClaw app version):"
+          echo "    ✔ OpenClaw installed : $APP_INITIAL_VERSION  ← CORRECT (app version)"
+          echo "    ✔ OpenClaw upgraded  : $APP_UPGRADE_VERSION   ← CORRECT (app version)"
+          echo ""
+          echo "  oclaw CLI version  : $CLI_VERSION  (secondary – CLI binary check only)"
+          echo ""
+          echo "  NOTE: '$APP_INITIAL_VERSION' is the correct success criterion."
+          echo "        '$CLI_VERSION' (CLI version) would be INCORRECT as a success criterion."
+          echo ""
+          echo "  Tests ran in fully offline mode (OCLAW_CDN = http://oclaw-unreachable.invalid)"
+
+      # ── 15. Upload install log on failure ────────────────────────────────────
+      - name: Upload installation log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: manual-test-unix-install-log-${{ matrix.os }}
+          path: |
+            /tmp/oclaw-install-*.log
+            ${{ runner.temp }}/oclaw-install-*.log
+          retention-days: 7
+          if-no-files-found: ignore
