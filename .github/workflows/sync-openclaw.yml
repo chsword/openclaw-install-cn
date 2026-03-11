@@ -91,9 +91,24 @@ jobs:
             echo "OpenClaw $VERSION is new – will sync to CDN."
           fi
 
+      # ── 2b. Check if GitHub Release already exists ────────────────────────
+      - name: Check if GitHub Release exists
+        id: check_release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.detect.outputs.tag }}"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release_exists=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::GitHub Release $TAG already exists – skipping release creation."
+          else
+            echo "release_exists=false" >> "$GITHUB_OUTPUT"
+            echo "GitHub Release $TAG does not exist – will create."
+          fi
+
       # ── 3. Download all release assets from openclaw/openclaw ─────────────
       - name: Download upstream release assets
-        if: steps.check.outputs.already_present != 'true'
+        if: steps.check.outputs.already_present != 'true' || steps.check_release.outputs.release_exists == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG:      ${{ steps.detect.outputs.tag }}
@@ -143,7 +158,7 @@ jobs:
       # The upstream release may use different file-name conventions; we try
       # several patterns per platform and fall back gracefully.
       - name: Repackage upstream assets for CDN
-        if: steps.check.outputs.already_present != 'true'
+        if: steps.check.outputs.already_present != 'true' || steps.check_release.outputs.release_exists == 'false'
         env:
           VERSION: ${{ steps.detect.outputs.version }}
         run: |
@@ -416,7 +431,7 @@ jobs:
 
       # ── 8. Create GitHub Release ──────────────────────────────────────────
       - name: Create GitHub Release for OpenClaw ${{ steps.detect.outputs.version }}
-        if: steps.check.outputs.already_present != 'true'
+        if: steps.check_release.outputs.release_exists == 'false'
         uses: softprops/action-gh-release@v2.5.0
         with:
           tag_name: ${{ steps.detect.outputs.version }}
