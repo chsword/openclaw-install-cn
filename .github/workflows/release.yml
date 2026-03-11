@@ -463,7 +463,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          delete_existing: false
+          overwrite_files: true
           name: "OpenClaw Installer ${{ steps.ver.outputs.tag }}"
           body_path: /tmp/release-notes.md
           draft: false
