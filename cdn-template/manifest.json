@@ -13,8 +13,8 @@
       },
       "checksums": {
         "win32-x64": "sha256:UNAVAILABLE",
-        "darwin-x64": "sha256:UNAVAILABLE",
-        "darwin-arm64": "sha256:UNAVAILABLE",
+        "darwin-x64": "sha256:666e35605e925685c41cba609ab6e75502ce7af3a9389a59063ef9a473bbbadb",
+        "darwin-arm64": "sha256:666e35605e925685c41cba609ab6e75502ce7af3a9389a59063ef9a473bbbadb",
         "linux-x64": "sha256:UNAVAILABLE"
       }
     },
