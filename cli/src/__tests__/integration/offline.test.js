@@ -24,17 +24,9 @@ const assert   = require('node:assert/strict');
 const fs       = require('fs');
 const path     = require('path');
 const os       = require('os');
-const { execFile }  = require('child_process');
-const { promisify } = require('util');
 
 const { buildZip, buildTarGz } = require('./mock-server');
-
-const execFileAsync = promisify(execFile);
-
-// ── Constants ─────────────────────────────────────────────────────────────────
-
-/** Absolute path to the CLI entry-point. */
-const OCLAW_BIN = path.resolve(__dirname, '../../../bin/oclaw.js');
+const { runCli } = require('./test-helpers');
 
 /** Platform / arch for the current runner (matches what install.js uses). */
 const PLATFORM = process.platform;   // 'linux' | 'darwin' | 'win32'
@@ -55,45 +47,15 @@ function buildArchive(version) {
 }
 
 /**
- * Build an isolated subprocess environment.
- * HOME / USERPROFILE / LOCALAPPDATA all point inside `tmpHome`.
- * OCLAW_CDN is set to an unreachable address — any accidental network call
- * would produce an ECONNREFUSED error immediately.
+ * Wrap runCli to always inject an unreachable OCLAW_CDN so any accidental
+ * network call fails immediately with ECONNREFUSED, proving the tests are
+ * fully offline.
  */
-function buildEnv(tmpHome, extraEnv = {}) {
-  return {
-    ...process.env,
-    HOME:         tmpHome,
-    USERPROFILE:  tmpHome,
-    LOCALAPPDATA: path.join(tmpHome, 'AppData', 'Local'),
-    APPDATA:      path.join(tmpHome, 'AppData', 'Roaming'),
-    // Unreachable CDN — ensures offline tests stay offline
-    OCLAW_CDN:         'http://127.0.0.1:1',
-    OCLAW_CLI_VERSION: undefined,
-    OCLAW_INSTALL_DIR: undefined,
-    OCLAW_BIN_DIR:     undefined,
-    ...extraEnv,
-  };
-}
-
-/** Run `node bin/oclaw.js <args>` in an isolated subprocess. */
-async function runCli(args, tmpHome, opts = {}) {
-  const env = buildEnv(tmpHome, opts.env || {});
-  try {
-    const { stdout, stderr } = await execFileAsync(
-      process.execPath,
-      [OCLAW_BIN, ...args],
-      { encoding: 'utf-8', env, timeout: opts.timeout || 30000 },
-    );
-    return { exitCode: 0, stdout: stdout || '', stderr: stderr || '', output: (stdout || '') + (stderr || '') };
-  } catch (err) {
-    return {
-      exitCode: typeof err.code === 'number' ? err.code : 1,
-      stdout:   err.stdout  || '',
-      stderr:   err.stderr  || '',
-      output:   (err.stdout || '') + (err.stderr || ''),
-    };
-  }
+function runCliOffline(args, tmpHome, opts = {}) {
+  return runCli(args, tmpHome, {
+    ...opts,
+    env: { OCLAW_CDN: 'http://127.0.0.1:1', ...(opts.env || {}) },
+  });
 }
 
 /**
@@ -161,7 +123,7 @@ describe('integration (offline): install from local package', () => {
   test('installs from local bundle directory (versioned layout)', { timeout: 30000 }, async () => {
     const { bundleDir } = makeLocalBundle(path.join(tmpBundles, 'v1-versioned'), '1.0.0', 'versioned');
 
-    const r = await runCli(['install', '--local-package', bundleDir, '--dir', installDir], tmpHome);
+    const r = await runCliOffline(['install', '--local-package', bundleDir, '--dir', installDir], tmpHome);
     assert.strictEqual(r.exitCode, 0, `Expected exit 0\n${r.output}`);
     assert.match(r.output, /installed successfully/i);
 
@@ -175,7 +137,7 @@ describe('integration (offline): install from local package', () => {
   test('installs from local bundle directory (flat layout)', { timeout: 30000 }, async () => {
     const { bundleDir } = makeLocalBundle(path.join(tmpBundles, 'v1-flat'), '1.0.0', 'flat');
 
-    const r = await runCli(['install', '--local-package', bundleDir, '--dir', installDir], tmpHome);
+    const r = await runCliOffline(['install', '--local-package', bundleDir, '--dir', installDir], tmpHome);
     assert.strictEqual(r.exitCode, 0, `Expected exit 0\n${r.output}`);
     assert.match(r.output, /installed successfully/i);
 
@@ -194,7 +156,7 @@ describe('integration (offline): install from local package', () => {
     fs.mkdirSync(archiveDir, { recursive: true });
     fs.writeFileSync(archivePath, buildArchive(version));
 
-    const r = await runCli(['install', '--local-package', archivePath, '--dir', installDir], tmpHome);
+    const r = await runCliOffline(['install', '--local-package', archivePath, '--dir', installDir], tmpHome);
     assert.strictEqual(r.exitCode, 0, `Expected exit 0\n${r.output}`);
     assert.match(r.output, /installed successfully/i);
 
@@ -209,10 +171,10 @@ describe('integration (offline): install from local package', () => {
     const { bundleDir } = makeLocalBundle(path.join(tmpBundles, 'skip-test'), '1.0.0', 'versioned');
 
     // First install
-    await runCli(['install', '--local-package', bundleDir, '--dir', installDir], tmpHome);
+    await runCliOffline(['install', '--local-package', bundleDir, '--dir', installDir], tmpHome);
 
     // Second install — same version, no --force
-    const r = await runCli(['install', '--local-package', bundleDir, '--dir', installDir], tmpHome);
+    const r = await runCliOffline(['install', '--local-package', bundleDir, '--dir', installDir], tmpHome);
     assert.strictEqual(r.exitCode, 0, `Expected exit 0\n${r.output}`);
     assert.match(r.output, /already installed/i);
   });
@@ -222,9 +184,9 @@ describe('integration (offline): install from local package', () => {
   test('reinstalls when --force is given even if version matches', { timeout: 30000 }, async () => {
     const { bundleDir } = makeLocalBundle(path.join(tmpBundles, 'force-test'), '1.0.0', 'versioned');
 
-    await runCli(['install', '--local-package', bundleDir, '--dir', installDir], tmpHome);
+    await runCliOffline(['install', '--local-package', bundleDir, '--dir', installDir], tmpHome);
 
-    const r = await runCli(
+    const r = await runCliOffline(
       ['install', '--local-package', bundleDir, '--dir', installDir, '--force'],
       tmpHome,
     );
@@ -243,7 +205,7 @@ describe('integration (offline): install from local package', () => {
     const { bundleDir: bundle1 } = makeLocalBundle(
       path.join(tmpBundles, 'v100'), '1.0.0', 'versioned',
     );
-    await runCli(['install', '--local-package', bundle1, '--dir', installDir], tmpHome);
+    await runCliOffline(['install', '--local-package', bundle1, '--dir', installDir], tmpHome);
     assert.equal(
       fs.readFileSync(path.join(installDir, '.oclaw-version'), 'utf-8').trim(),
       '1.0.0',
@@ -253,7 +215,7 @@ describe('integration (offline): install from local package', () => {
     const { bundleDir: bundle2 } = makeLocalBundle(
       path.join(tmpBundles, 'v110'), '1.1.0', 'versioned',
     );
-    const r = await runCli(
+    const r = await runCliOffline(
       ['install', '--local-package', bundle2, '--dir', installDir],
       tmpHome,
     );
@@ -293,7 +255,7 @@ describe('integration (offline): install from local package', () => {
     fs.writeFileSync(path.join(v2Dir, pkgFilename(v2)), buildArchive(v2));
 
     // Without --version: should install the latest (v2)
-    const r = await runCli(
+    const r = await runCliOffline(
       ['install', '--local-package', bundleDir, '--dir', installDir],
       tmpHome,
     );
@@ -309,7 +271,7 @@ describe('integration (offline): install from local package', () => {
   // ── 8. Error: local path does not exist ───────────────────────────────────
 
   test('exits non-zero when local package path does not exist', { timeout: 15000 }, async () => {
-    const r = await runCli(
+    const r = await runCliOffline(
       ['install', '--local-package', '/nonexistent/path/bundle', '--dir', installDir],
       tmpHome,
     );
@@ -323,7 +285,7 @@ describe('integration (offline): install from local package', () => {
     const emptyDir = path.join(tmpBundles, 'no-manifest');
     fs.mkdirSync(emptyDir, { recursive: true });
 
-    const r = await runCli(
+    const r = await runCliOffline(
       ['install', '--local-package', emptyDir, '--dir', installDir],
       tmpHome,
     );
