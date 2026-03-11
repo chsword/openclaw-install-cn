@@ -461,7 +461,7 @@ jobs:
           NOTES
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2.0.0
+        uses: softprops/action-gh-release@v2.5.0
         with:
           name: "OpenClaw Installer ${{ steps.ver.outputs.tag }}"
           body_path: /tmp/release-notes.md

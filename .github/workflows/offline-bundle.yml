@@ -625,7 +625,7 @@ jobs:
           PYEOF
 
       - name: Create GitHub Release with offline bundles
-        uses: softprops/action-gh-release@v2.0.0
+        uses: softprops/action-gh-release@v2.5.0
         with:
           tag_name: offline-${{ needs.build-cli.outputs.cli_version }}-oc${{ needs.download-openclaw.outputs.openclaw_version }}
           name: "离线安装包 | CLI ${{ needs.build-cli.outputs.cli_version }} + OpenClaw ${{ needs.download-openclaw.outputs.openclaw_version }}"
