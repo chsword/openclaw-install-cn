@@ -65,15 +65,19 @@ jobs:
 
   # ── CLI Lint (Linux only) ──────────────────────────────────────────────────
   lint-cli:
-    name: Lint CLI
+    name: Lint CLI (node${{ matrix.node }})
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20', '24']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: ${{ matrix.node }}
           cache: 'npm'
           cache-dependency-path: cli/package-lock.json
       - name: Cache node_modules
@@ -81,7 +85,7 @@ jobs:
         id: cache-lint-node-modules
         with:
           path: cli/node_modules
-          key: ${{ runner.os }}-node20-cli-node-modules-${{ hashFiles('cli/package-lock.json') }}
+          key: ${{ runner.os }}-node${{ matrix.node }}-cli-node-modules-${{ hashFiles('cli/package-lock.json') }}
       - run: npm ci
         if: steps.cache-lint-node-modules.outputs.cache-hit != 'true'
         working-directory: cli
@@ -94,18 +98,22 @@ jobs:
             echo "No ESLint configuration found – skipping lint step."
           fi
 
-  # ── Quick build check (Linux only, node18) ────────────────────────────────
+  # ── Quick build check (Linux only) ───────────────────────────────────────
   build-check-cli:
-    name: Build CLI (Linux check)
+    name: Build CLI (Linux, node${{ matrix.node }})
     needs: test-cli
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['18', '24']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: ${{ matrix.node }}
           cache: 'npm'
           cache-dependency-path: cli/package-lock.json
       - name: Cache node_modules
@@ -113,7 +121,7 @@ jobs:
         id: cache-build-node-modules
         with:
           path: cli/node_modules
-          key: ${{ runner.os }}-node18-cli-node-modules-${{ hashFiles('cli/package-lock.json') }}
+          key: ${{ runner.os }}-node${{ matrix.node }}-cli-node-modules-${{ hashFiles('cli/package-lock.json') }}
       - run: npm ci
         if: steps.cache-build-node-modules.outputs.cache-hit != 'true'
         working-directory: cli
