@@ -436,7 +436,7 @@ jobs:
         uses: softprops/action-gh-release@v2.5.0
         with:
           tag_name: ${{ steps.detect.outputs.release_tag }}
-          name: "OpenClaw 上游 ${{ steps.detect.outputs.version }}"
+          name: "OpenClaw Upstream ${{ steps.detect.outputs.version }}"
           body: |
             OpenClaw ${{ steps.detect.outputs.version }} 已从上游 [openclaw/openclaw](https://github.com/openclaw/openclaw/releases/tag/${{ steps.detect.outputs.tag }}) 同步。
 
