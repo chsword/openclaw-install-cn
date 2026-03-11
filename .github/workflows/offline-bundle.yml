@@ -38,6 +38,9 @@ on:
           Leave empty to auto-detect the latest release from openclaw/openclaw.
         required: false
         default: ''
+  schedule:
+    # Weekly build every Sunday at 02:00 UTC - ensures the pipeline stays healthy.
+    - cron: '0 2 * * 0'
   workflow_run:
     workflows: ['Release']
     types: [completed]
@@ -52,6 +55,7 @@ jobs:
     # For workflow_run, only proceed when the upstream release succeeded.
     if: >
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     outputs:
@@ -77,6 +81,10 @@ jobs:
       - name: Install CLI dependencies
         if: steps.cache-cli-node-modules.outputs.cache-hit != 'true'
         run: npm ci
+        working-directory: cli
+
+      - name: Check for security vulnerabilities
+        run: npm audit --audit-level=critical
         working-directory: cli
 
       - name: Determine CLI version
@@ -172,6 +180,7 @@ jobs:
     name: Download OpenClaw packages
     if: >
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     outputs:
@@ -508,6 +517,103 @@ jobs:
           sha256sum openclaw-offline-bundle-*.zip > bundle-checksums.sha256
           echo "=== checksums ==="
           cat bundle-checksums.sha256
+
+      - name: Validate offline bundle archives
+        env:
+          CLI_VERSION:      ${{ needs.build-cli.outputs.cli_version }}
+          OPENCLAW_VERSION: ${{ needs.download-openclaw.outputs.openclaw_version }}
+        run: |
+          python3 - <<'PYEOF'
+          import json, os, sys
+
+          cli_ver = os.environ['CLI_VERSION']
+          oc_ver = os.environ['OPENCLAW_VERSION']
+          platforms = ['win32-x64', 'darwin-x64', 'darwin-arm64', 'linux-x64']
+          errors = []
+
+          # 1. Verify all per-platform bundle archives exist and are > 1 MB
+          print('=== Checking per-platform bundle archives ===')
+          for plat in platforms:
+              fname = f'openclaw-offline-bundle-{cli_ver}-{plat}.zip'
+              if not os.path.exists(fname):
+                  errors.append(f'MISSING bundle archive: {fname}')
+                  continue
+              size = os.path.getsize(fname)
+              if size < 1024 * 1024:
+                  errors.append(f'Bundle too small ({size:,} bytes < 1 MB): {fname}')
+              else:
+                  print(f'  OK  {fname}  ({size:,} bytes)')
+
+          # 2. Verify manifest.json structure and version
+          print('\n=== Checking manifest.json ===')
+          manifest_path = 'openclaw-bundle/manifest.json'
+          if not os.path.exists(manifest_path):
+              errors.append(f'MISSING: {manifest_path}')
+          else:
+              with open(manifest_path) as fh:
+                  manifest = json.load(fh)
+              if manifest.get('latest') != oc_ver:
+                  errors.append(
+                      f'manifest.json: latest="{manifest.get("latest")}" '
+                      f'!= expected "{oc_ver}"'
+                  )
+              else:
+                  print(f'  OK  latest = {oc_ver}')
+              versions = manifest.get('versions', [])
+              if not versions:
+                  errors.append('manifest.json: "versions" array is empty')
+              else:
+                  checksums = versions[0].get('checksums', {})
+                  for plat in platforms:
+                      cs = checksums.get(plat, '')
+                      if not cs.startswith('sha256:'):
+                          errors.append(
+                              f'manifest.json: missing/invalid checksum for {plat}: "{cs}"'
+                          )
+                      elif cs == 'sha256:UNAVAILABLE':
+                          print(f'  WARN  checksum for {plat}: UNAVAILABLE '
+                                f'(upstream package not published)')
+                      else:
+                          print(f'  OK  checksum for {plat}: {cs[:16]}...')
+
+          # 3. Verify cli-manifest.json structure and version
+          print('\n=== Checking cli-manifest.json ===')
+          cli_manifest_path = 'openclaw-bundle/cli-manifest.json'
+          if not os.path.exists(cli_manifest_path):
+              errors.append(f'MISSING: {cli_manifest_path}')
+          else:
+              with open(cli_manifest_path) as fh:
+                  cli_manifest = json.load(fh)
+              if cli_manifest.get('latest') != cli_ver:
+                  errors.append(
+                      f'cli-manifest.json: latest="{cli_manifest.get("latest")}" '
+                      f'!= expected "{cli_ver}"'
+                  )
+              else:
+                  print(f'  OK  latest = {cli_ver}')
+              cli_versions = cli_manifest.get('versions', [])
+              if not cli_versions:
+                  errors.append('cli-manifest.json: "versions" array is empty')
+              else:
+                  cli_checksums = cli_versions[0].get('checksums', {})
+                  for plat in platforms:
+                      cs = cli_checksums.get(plat, '')
+                      if not cs.startswith('sha256:') or cs == 'sha256:UNAVAILABLE':
+                          errors.append(
+                              f'cli-manifest.json: missing/invalid checksum for {plat}: "{cs}"'
+                          )
+                      else:
+                          print(f'  OK  checksum for {plat}: {cs[:16]}...')
+
+          # Summary
+          if errors:
+              print('\n=== VALIDATION FAILED ===')
+              for e in errors:
+                  print(f'  ERROR: {e}')
+              sys.exit(1)
+          else:
+              print('\n=== Bundle validation PASSED ===')
+          PYEOF
 
       - name: Create GitHub Release with offline bundles
         uses: softprops/action-gh-release@v2.0.0
