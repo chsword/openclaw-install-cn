@@ -414,7 +414,34 @@ jobs:
           tccli cdn PurgeUrlsCache --Urls "$URLS"
           echo "CDN cache purge submitted."
 
-      # ── 8. Commit updated manifest.json back to main ──────────────────────
+      # ── 8. Create GitHub Release ──────────────────────────────────────────
+      - name: Create GitHub Release for OpenClaw ${{ steps.detect.outputs.version }}
+        if: steps.check.outputs.already_present != 'true'
+        uses: softprops/action-gh-release@v2.5.0
+        with:
+          tag_name: ${{ steps.detect.outputs.version }}
+          name: ${{ steps.detect.outputs.version }}
+          body: |
+            OpenClaw ${{ steps.detect.outputs.version }} 已从上游 [openclaw/openclaw](https://github.com/openclaw/openclaw/releases/tag/${{ steps.detect.outputs.tag }}) 同步。
+
+            包含以下平台安装包：
+
+            | 文件 | 平台 |
+            |------|------|
+            | `openclaw-${{ steps.detect.outputs.version }}-win32-x64.zip` | Windows x64 |
+            | `openclaw-${{ steps.detect.outputs.version }}-darwin-x64.tar.gz` | macOS Intel x64 |
+            | `openclaw-${{ steps.detect.outputs.version }}-darwin-arm64.tar.gz` | macOS Apple Silicon |
+            | `openclaw-${{ steps.detect.outputs.version }}-linux-x64.tar.gz` | Linux x64 |
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: false
+          files: |
+            cdn-packages/openclaw-${{ steps.detect.outputs.version }}-win32-x64.zip
+            cdn-packages/openclaw-${{ steps.detect.outputs.version }}-darwin-x64.tar.gz
+            cdn-packages/openclaw-${{ steps.detect.outputs.version }}-darwin-arm64.tar.gz
+            cdn-packages/openclaw-${{ steps.detect.outputs.version }}-linux-x64.tar.gz
+
+      # ── 9. Commit updated manifest.json back to main ──────────────────────
       # cdn-template/ is in ci.yml's paths-ignore so this commit won't
       # retrigger the CI workflow.
       - name: Commit manifest.json update
