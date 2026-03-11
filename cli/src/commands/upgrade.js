@@ -36,6 +36,7 @@ function compareSemver(a, b) {
  * Run the upgrade command.
  * @param {Object} options
  * @param {boolean} [options.checkOnly] - only check, don't upgrade
+ * @param {boolean} [options.json]      - output result as JSON
  */
 async function runUpgrade(options = {}) {
   const config = loadConfig();
@@ -46,29 +47,59 @@ async function runUpgrade(options = {}) {
   const installedVersion = readVersionMarker(installDir) || config.installedVersion;
 
   if (!isInstalled(installDir) && !installedVersion) {
-    log.warn('OpenClaw does not appear to be installed yet.');
-    log.dim('Run `oclaw install` to install it first.');
+    if (options.json) {
+      console.log(JSON.stringify({ error: 'OpenClaw does not appear to be installed yet.' }, null, 2));
+    } else {
+      log.warn('OpenClaw does not appear to be installed yet.');
+      log.dim('Run `oclaw install` to install it first.');
+    }
     process.exit(1);
   }
 
-  log.step('Checking for updates...');
+  if (!options.json) log.step('Checking for updates...');
   let latestVersion;
   try {
     latestVersion = await getLatestVersion(cdnBase);
   } catch (err) {
-    log.error(`Failed to check for updates: ${err.message}`);
+    if (options.json) {
+      console.log(JSON.stringify({ error: `Failed to check for updates: ${err.message}` }, null, 2));
+    } else {
+      log.error(`Failed to check for updates: ${err.message}`);
+    }
     process.exit(1);
   }
 
-  if (installedVersion && compareSemver(latestVersion, installedVersion) <= 0) {
+  const updateAvailable = compareSemver(latestVersion, installedVersion) > 0;
+
+  if (options.json && options.checkOnly) {
+    console.log(JSON.stringify({
+      installedVersion: installedVersion || null,
+      latestVersion,
+      updateAvailable,
+    }, null, 2));
+    return;
+  }
+
+  if (!updateAvailable) {
+    if (options.json) {
+      console.log(JSON.stringify({
+        installedVersion: installedVersion || null,
+        latestVersion,
+        updateAvailable: false,
+        upgraded: false,
+      }, null, 2));
+      return;
+    }
     log.success(`OpenClaw is up to date (${installedVersion}).`);
     return;
   }
 
-  if (installedVersion) {
-    log.info(`Upgrade available: ${installedVersion} → ${latestVersion}`);
-  } else {
-    log.info(`Latest version: ${latestVersion}`);
+  if (!options.json) {
+    if (installedVersion) {
+      log.info(`Upgrade available: ${installedVersion} → ${latestVersion}`);
+    } else {
+      log.info(`Latest version: ${latestVersion}`);
+    }
   }
 
   if (options.checkOnly) {
@@ -77,6 +108,15 @@ async function runUpgrade(options = {}) {
   }
 
   await runInstall({ version: latestVersion, force: true });
+
+  if (options.json) {
+    console.log(JSON.stringify({
+      installedVersion: installedVersion || null,
+      latestVersion,
+      updateAvailable: true,
+      upgraded: true,
+    }, null, 2));
+  }
 }
 
 module.exports = { runUpgrade, compareSemver };

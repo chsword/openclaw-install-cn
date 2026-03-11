@@ -5,9 +5,9 @@
  *
  * Usage:
  *   oclaw install    [--version <ver>] [--dir <path>] [--force]
- *   oclaw upgrade    [--check]
- *   oclaw status     [--check-updates]
- *   oclaw config     [--dir <path>] [--reset] [--list]
+ *   oclaw upgrade    [--check] [--json]
+ *   oclaw status     [--check-updates] [--json]
+ *   oclaw config     [--dir <path>] [--reset] [--list] [--json]
  *   oclaw version
  *   oclaw completion [--shell bash|zsh|fish]
  */
@@ -47,9 +47,10 @@ program
   .command('upgrade')
   .description('Check for updates and upgrade OpenClaw if a newer version is available')
   .option('--check', 'only check for updates, do not upgrade', false)
+  .option('--json', 'output result as JSON', false)
   .action(async (opts) => {
     const { runUpgrade } = require('./commands/upgrade');
-    await runUpgrade({ checkOnly: opts.check }).catch(fatalError);
+    await runUpgrade({ checkOnly: opts.check, json: opts.json }).catch(fatalError);
   });
 
 // ── status ─────────────────────────────────────────────────────────────────────
@@ -57,9 +58,10 @@ program
   .command('status')
   .description('Show current installation status and version')
   .option('--check-updates', 'also check CDN for the latest available version', false)
+  .option('--json', 'output result as JSON', false)
   .action(async (opts) => {
     const { runStatus } = require('./commands/status');
-    await runStatus({ checkUpdates: opts.checkUpdates }).catch(fatalError);
+    await runStatus({ checkUpdates: opts.checkUpdates, json: opts.json }).catch(fatalError);
   });
 
 // ── config ─────────────────────────────────────────────────────────────────────
@@ -69,6 +71,7 @@ program
   .option('--dir <path>', 'set the installation directory')
   .option('--reset', 'reset configuration to defaults', false)
   .option('--list', 'list current configuration (default action)', false)
+  .option('--json', 'output result as JSON', false)
   .action((opts) => {
     const { runConfig } = require('./commands/config');
     runConfig(opts);
