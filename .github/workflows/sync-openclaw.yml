@@ -273,8 +273,8 @@ jobs:
           coscmd config \
             -a "${{ secrets.SECRETID }}" \
             -s "${{ secrets.SECRETKEY }}" \
-            -b "${{ secrets.BUCKET }}" \
-            -r "${{ secrets.REGION }}"
+            -b "${{ vars.BUCKET }}" \
+            -r "${{ vars.REGION }}"
 
           cos_upload_if_new() {
             local src="$1" dst="$2"
