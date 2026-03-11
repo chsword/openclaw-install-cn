@@ -403,6 +403,8 @@ jobs:
           cat > /tmp/release-notes.md << NOTES
           ## OpenClaw Installer ${TAG}
 
+          > 🔖 **当前 OpenClaw 最新版本：${TAG}**
+
           本版本通过 GitHub Actions 自动构建，包含以下组件：
 
           ### 📦 CLI 工具 (`oclaw`)
@@ -575,23 +577,35 @@ jobs:
         run: |
           VERSION="${{ steps.ver.outputs.version }}"
 
+          # Helper: upload only if the object doesn't already exist on COS.
+          # Versioned packages are immutable, so skipping re-uploads saves time
+          # and avoids accidental overwrites when a release job is re-run.
+          cos_upload_if_new() {
+            local src="$1"
+            local dst="$2"
+            if coscmd info "$dst" > /dev/null 2>&1; then
+              echo "SKIP  $dst (already exists on COS)"
+            else
+              echo "UPLOAD $src -> $dst"
+              coscmd upload "$src" "$dst"
+            fi
+          }
+
           # Upload CLI packages (required – job fails if any are missing)
-          coscmd upload cdn-packages/oclaw-${VERSION}-win32-x64.zip    cli/${VERSION}/oclaw-${VERSION}-win32-x64.zip
-          coscmd upload cdn-packages/oclaw-${VERSION}-darwin-x64.tar.gz    cli/${VERSION}/oclaw-${VERSION}-darwin-x64.tar.gz
-          coscmd upload cdn-packages/oclaw-${VERSION}-darwin-arm64.tar.gz  cli/${VERSION}/oclaw-${VERSION}-darwin-arm64.tar.gz
-          coscmd upload cdn-packages/oclaw-${VERSION}-linux-x64.tar.gz     cli/${VERSION}/oclaw-${VERSION}-linux-x64.tar.gz
+          cos_upload_if_new cdn-packages/oclaw-${VERSION}-win32-x64.zip       cli/${VERSION}/oclaw-${VERSION}-win32-x64.zip
+          cos_upload_if_new cdn-packages/oclaw-${VERSION}-darwin-x64.tar.gz   cli/${VERSION}/oclaw-${VERSION}-darwin-x64.tar.gz
+          cos_upload_if_new cdn-packages/oclaw-${VERSION}-darwin-arm64.tar.gz cli/${VERSION}/oclaw-${VERSION}-darwin-arm64.tar.gz
+          cos_upload_if_new cdn-packages/oclaw-${VERSION}-linux-x64.tar.gz    cli/${VERSION}/oclaw-${VERSION}-linux-x64.tar.gz
 
           # Upload GUI packages (optional – skipped if the build artifact is absent)
-          [ -f cdn-packages/openclaw-${VERSION}-win32-x64.zip ]        && coscmd upload cdn-packages/openclaw-${VERSION}-win32-x64.zip        ${VERSION}/openclaw-${VERSION}-win32-x64.zip        || true
-          [ -f cdn-packages/openclaw-${VERSION}-darwin-x64.tar.gz ]    && coscmd upload cdn-packages/openclaw-${VERSION}-darwin-x64.tar.gz    ${VERSION}/openclaw-${VERSION}-darwin-x64.tar.gz    || true
-          [ -f cdn-packages/openclaw-${VERSION}-darwin-arm64.tar.gz ]  && coscmd upload cdn-packages/openclaw-${VERSION}-darwin-arm64.tar.gz  ${VERSION}/openclaw-${VERSION}-darwin-arm64.tar.gz  || true
-          [ -f cdn-packages/openclaw-${VERSION}-linux-x64.tar.gz ]     && coscmd upload cdn-packages/openclaw-${VERSION}-linux-x64.tar.gz     ${VERSION}/openclaw-${VERSION}-linux-x64.tar.gz     || true
+          [ -f cdn-packages/openclaw-${VERSION}-win32-x64.zip ]        && cos_upload_if_new cdn-packages/openclaw-${VERSION}-win32-x64.zip        ${VERSION}/openclaw-${VERSION}-win32-x64.zip        || true
+          [ -f cdn-packages/openclaw-${VERSION}-darwin-x64.tar.gz ]    && cos_upload_if_new cdn-packages/openclaw-${VERSION}-darwin-x64.tar.gz    ${VERSION}/openclaw-${VERSION}-darwin-x64.tar.gz    || true
+          [ -f cdn-packages/openclaw-${VERSION}-darwin-arm64.tar.gz ]  && cos_upload_if_new cdn-packages/openclaw-${VERSION}-darwin-arm64.tar.gz  ${VERSION}/openclaw-${VERSION}-darwin-arm64.tar.gz  || true
+          [ -f cdn-packages/openclaw-${VERSION}-linux-x64.tar.gz ]     && cos_upload_if_new cdn-packages/openclaw-${VERSION}-linux-x64.tar.gz     ${VERSION}/openclaw-${VERSION}-linux-x64.tar.gz     || true
 
-          # Upload install scripts
+          # Upload install scripts and manifests (always overwrite – these are not versioned)
           coscmd upload scripts/install.sh  install.sh
           coscmd upload scripts/install.ps1 install.ps1
-
-          # Upload manifests (overwrite latest)
           coscmd upload cdn-template/manifest.json     manifest.json
           coscmd upload cdn-template/cli-manifest.json cli-manifest.json
 
