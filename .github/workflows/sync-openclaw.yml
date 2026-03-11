@@ -186,30 +186,50 @@ jobs:
             echo "  Normalized: $(basename "$f") → ${CANON_DMG}"
             break
           done
-          # macOS app zip: OpenClaw-{V}*.zip (exclude dSYM debug-symbol archives)
+          # macOS app zip: OpenClaw-{V}*.zip (exclude dSYM debug archives and Windows portable zips)
           for f in upstream-assets/OpenClaw-${V}*.zip; do
             [[ "$f" == *dSYM* ]] && continue
+            [[ "$f" =~ [Ww]in ]] && continue   # skip Windows portable zips
             [ -f "$f" ] || continue
             CANON_ZIP="openclaw-${V}-mac-universal.zip"
             cp "$f" "upstream-assets/${CANON_ZIP}"
             echo "  Normalized: $(basename "$f") → ${CANON_ZIP}"
             break
           done
-          # Windows installer/portable: try patterns in priority order; use the first match.
-          # OpenClaw-{V}*win*.exe is checked first; OpenClaw-{V}*Setup*.exe is a fallback.
-          for f in upstream-assets/OpenClaw-${V}*win*.exe upstream-assets/OpenClaw-${V}*Setup*.exe; do
+          # Windows installer exe: try *win*.exe and *[Ss]etup*.exe patterns (any pre-release suffix)
+          for f in upstream-assets/OpenClaw-${V}*[Ww]in*.exe \
+                   upstream-assets/OpenClaw-${V}*[Ss]etup*.exe \
+                   upstream-assets/OpenClaw*[Ss]etup*${V}*.exe; do
             [ -f "$f" ] || continue
             CANON_WIN="openclaw-${V}-win32-x64.exe"
             cp "$f" "upstream-assets/${CANON_WIN}"
             echo "  Normalized: $(basename "$f") → ${CANON_WIN}"
             break
           done
-          # Linux AppImage: OpenClaw-{V}*.AppImage
+          # Windows portable zip: OpenClaw-{V}*win*.zip (any pre-release suffix)
+          for f in upstream-assets/OpenClaw-${V}*[Ww]in*.zip; do
+            [ -f "$f" ] || continue
+            CANON_WIN_ZIP="openclaw-${V}-win32-x64.zip"
+            cp "$f" "upstream-assets/${CANON_WIN_ZIP}"
+            echo "  Normalized: $(basename "$f") → ${CANON_WIN_ZIP}"
+            break
+          done
+          # Linux AppImage: OpenClaw-{V}*.AppImage (any pre-release suffix)
           for f in upstream-assets/OpenClaw-${V}*.AppImage; do
             [ -f "$f" ] || continue
             CANON_LX="openclaw-${V}-linux-x64.AppImage"
             cp "$f" "upstream-assets/${CANON_LX}"
             echo "  Normalized: $(basename "$f") → ${CANON_LX}"
+            break
+          done
+          # Linux tar.gz: OpenClaw-{V}*linux*.tar.gz / *amd64*.tar.gz (any pre-release suffix)
+          for f in upstream-assets/OpenClaw-${V}*[Ll]inux*.tar.gz \
+                   upstream-assets/OpenClaw-${V}*amd64*.tar.gz \
+                   upstream-assets/OpenClaw-${V}*x86_64*.tar.gz; do
+            [ -f "$f" ] || continue
+            CANON_LX_TGZ="openclaw-${V}-linux-x64.tar.gz"
+            cp "$f" "upstream-assets/${CANON_LX_TGZ}"
+            echo "  Normalized: $(basename "$f") → ${CANON_LX_TGZ}"
             break
           done
 
