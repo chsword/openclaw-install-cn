@@ -34,7 +34,7 @@
 │        │              Linux AppImage)                                 │
 │        ├── Publish GitHub Release                                    │
 │        └── Upload cli/{installer-ver}/oclaw-* + cli-manifest ──┐    │
-               Upload gui/{installer-ver}/openclaw-gui-*  ──────┤   │
+│            Upload gui/{installer-ver}/openclaw-gui-*  ──────┤    │
 │                                                                  │   │
 │  Daily schedule / workflow_dispatch                              │   │
 │       │                                                          │   │
