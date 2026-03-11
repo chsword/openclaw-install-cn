@@ -63,14 +63,14 @@ jobs:
         run: |
           VERSION="${{ steps.detect.outputs.version }}"
           PRESENT=$(python3 - <<PYEOF
-import json, sys
-try:
-    m = json.load(open('cdn-template/manifest.json'))
-    print('true' if any(e['version'] == '$VERSION' for e in m.get('versions', [])) else 'false')
-except Exception as e:
-    sys.stderr.write(f'Warning: {e}\n')
-    print('false')
-PYEOF
+          import json, sys
+          try:
+              m = json.load(open('cdn-template/manifest.json'))
+              print('true' if any(e['version'] == '$VERSION' for e in m.get('versions', [])) else 'false')
+          except Exception as e:
+              sys.stderr.write(f'Warning: {e}\n')
+              print('false')
+          PYEOF
           )
           echo "already_present=$PRESENT" >> "$GITHUB_OUTPUT"
           if [ "$PRESENT" = "true" ]; then
@@ -95,21 +95,21 @@ PYEOF
 
           echo "=== Release info ==="
           echo "$RELEASE_JSON" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-print(f'  name:   {d.get(\"name\",\"\")}')
-print(f'  tag:    {d.get(\"tag_name\",\"\")}')
-print(f'  assets: {len(d.get(\"assets\",[]))}')
-for a in d.get('assets', []):
-    print(f'    {a[\"name\"]}  ({a[\"size\"]:,} bytes)')
-"
+          import sys, json
+          d = json.load(sys.stdin)
+          print(f'  name:   {d.get(\"name\",\"\")}')
+          print(f'  tag:    {d.get(\"tag_name\",\"\")}')
+          print(f'  assets: {len(d.get(\"assets\",[]))}')
+          for a in d.get('assets', []):
+              print(f'    {a[\"name\"]}  ({a[\"size\"]:,} bytes)')
+          "
           # Build asset download list: "name|url" per line
           echo "$RELEASE_JSON" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-for a in d.get('assets', []):
-    print(a['name'] + '|' + a['browser_download_url'])
-" > /tmp/asset-list.txt
+          import sys, json
+          d = json.load(sys.stdin)
+          for a in d.get('assets', []):
+              print(a['name'] + '|' + a['browser_download_url'])
+          " > /tmp/asset-list.txt
 
           echo ""
           echo "=== Downloading assets ==="
@@ -209,59 +209,59 @@ for a in d.get('assets', []):
           VERSION: ${{ steps.detect.outputs.version }}
         run: |
           python3 - <<'PYEOF'
-import json, os, hashlib, datetime
+          import json, os, hashlib, datetime
 
-def sha256_file(path):
-    h = hashlib.sha256()
-    with open(path, 'rb') as f:
-        for chunk in iter(lambda: f.read(65536), b''):
-            h.update(chunk)
-    return h.hexdigest()
+          def sha256_file(path):
+              h = hashlib.sha256()
+              with open(path, 'rb') as f:
+                  for chunk in iter(lambda: f.read(65536), b''):
+                      h.update(chunk)
+              return h.hexdigest()
 
-def checksum_for(path):
-    if os.path.exists(path):
-        return 'sha256:' + sha256_file(path)
-    return 'sha256:UNAVAILABLE'
+          def checksum_for(path):
+              if os.path.exists(path):
+                  return 'sha256:' + sha256_file(path)
+              return 'sha256:UNAVAILABLE'
 
-version = os.environ['VERSION']
-cdn_dir = 'cdn-packages'
+          version = os.environ['VERSION']
+          cdn_dir = 'cdn-packages'
 
-checksums = {
-    'win32-x64':    checksum_for(f'{cdn_dir}/openclaw-{version}-win32-x64.zip'),
-    'darwin-x64':   checksum_for(f'{cdn_dir}/openclaw-{version}-darwin-x64.tar.gz'),
-    'darwin-arm64': checksum_for(f'{cdn_dir}/openclaw-{version}-darwin-arm64.tar.gz'),
-    'linux-x64':    checksum_for(f'{cdn_dir}/openclaw-{version}-linux-x64.tar.gz'),
-}
-print(f'Checksums: {checksums}')
+          checksums = {
+              'win32-x64':    checksum_for(f'{cdn_dir}/openclaw-{version}-win32-x64.zip'),
+              'darwin-x64':   checksum_for(f'{cdn_dir}/openclaw-{version}-darwin-x64.tar.gz'),
+              'darwin-arm64': checksum_for(f'{cdn_dir}/openclaw-{version}-darwin-arm64.tar.gz'),
+              'linux-x64':    checksum_for(f'{cdn_dir}/openclaw-{version}-linux-x64.tar.gz'),
+          }
+          print(f'Checksums: {checksums}')
 
-manifest_path = 'cdn-template/manifest.json'
-with open(manifest_path) as f:
-    manifest = json.load(f)
+          manifest_path = 'cdn-template/manifest.json'
+          with open(manifest_path) as f:
+              manifest = json.load(f)
 
-versions = manifest.get('versions', [])
-if not any(v['version'] == version for v in versions):
-    entry = {
-        'version':     version,
-        'releaseDate': datetime.date.today().isoformat(),
-        'description': f'OpenClaw {version}',
-        'files': {
-            'win32-x64':    f'openclaw-{version}-win32-x64.zip',
-            'darwin-x64':   f'openclaw-{version}-darwin-x64.tar.gz',
-            'darwin-arm64': f'openclaw-{version}-darwin-arm64.tar.gz',
-            'linux-x64':    f'openclaw-{version}-linux-x64.tar.gz',
-        },
-        'checksums': checksums,
-    }
-    versions.insert(0, entry)
-    manifest['versions'] = versions
+          versions = manifest.get('versions', [])
+          if not any(v['version'] == version for v in versions):
+              entry = {
+                  'version':     version,
+                  'releaseDate': datetime.date.today().isoformat(),
+                  'description': f'OpenClaw {version}',
+                  'files': {
+                      'win32-x64':    f'openclaw-{version}-win32-x64.zip',
+                      'darwin-x64':   f'openclaw-{version}-darwin-x64.tar.gz',
+                      'darwin-arm64': f'openclaw-{version}-darwin-arm64.tar.gz',
+                      'linux-x64':    f'openclaw-{version}-linux-x64.tar.gz',
+                  },
+                  'checksums': checksums,
+              }
+              versions.insert(0, entry)
+              manifest['versions'] = versions
 
-manifest['latest'] = version
+          manifest['latest'] = version
 
-with open(manifest_path, 'w') as f:
-    json.dump(manifest, f, indent=2, ensure_ascii=False)
-    f.write('\n')
-print(f'Updated {manifest_path}  latest={version}')
-PYEOF
+          with open(manifest_path, 'w') as f:
+              json.dump(manifest, f, indent=2, ensure_ascii=False)
+              f.write('\n')
+          print(f'Updated {manifest_path}  latest={version}')
+          PYEOF
 
       # ── 6. Upload to Tencent COS ───────────────────────────────────────────
       - name: Upload packages to COS
@@ -322,19 +322,19 @@ PYEOF
             region    "ap-guangzhou"
 
           URLS=$(python3 - <<'PYEOF'
-import json, os
-base = os.environ['CDN_DOMAIN']
-v    = os.environ['VERSION']
-urls = [base + '/manifest.json']
-for plat, ext in [
-    ('win32-x64',    'zip'),
-    ('darwin-x64',   'tar.gz'),
-    ('darwin-arm64', 'tar.gz'),
-    ('linux-x64',    'tar.gz'),
-]:
-    urls.append(f'{base}/{v}/openclaw-{v}-{plat}.{ext}')
-print(json.dumps(urls))
-PYEOF
+          import json, os
+          base = os.environ['CDN_DOMAIN']
+          v    = os.environ['VERSION']
+          urls = [base + '/manifest.json']
+          for plat, ext in [
+              ('win32-x64',    'zip'),
+              ('darwin-x64',   'tar.gz'),
+              ('darwin-arm64', 'tar.gz'),
+              ('linux-x64',    'tar.gz'),
+          ]:
+              urls.append(f'{base}/{v}/openclaw-{v}-{plat}.{ext}')
+          print(json.dumps(urls))
+          PYEOF
           )
           echo "Purging CDN URLs: $URLS"
           tccli cdn PurgeUrlsCache --Urls "$URLS"
