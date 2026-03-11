@@ -66,7 +66,14 @@ jobs:
           import json, sys
           try:
               m = json.load(open('cdn-template/manifest.json'))
-              print('true' if any(e['version'] == '$VERSION' for e in m.get('versions', [])) else 'false')
+              entry = next((ve for ve in m.get('versions', []) if ve['version'] == '$VERSION'), None)
+              if entry is None:
+                  print('false')
+              elif any(v == 'sha256:UNAVAILABLE' for v in entry.get('checksums', {}).values()):
+                  # Previous sync was incomplete (files not built/uploaded) – retry
+                  print('false')
+              else:
+                  print('true')
           except Exception as e:
               sys.stderr.write(f'Warning: {e}\n')
               print('false')
@@ -239,21 +246,24 @@ jobs:
               manifest = json.load(f)
 
           versions = manifest.get('versions', [])
-          if not any(v['version'] == version for v in versions):
-              entry = {
-                  'version':     version,
-                  'releaseDate': datetime.date.today().isoformat(),
-                  'description': f'OpenClaw {version}',
-                  'files': {
-                      'win32-x64':    f'openclaw-{version}-win32-x64.zip',
-                      'darwin-x64':   f'openclaw-{version}-darwin-x64.tar.gz',
-                      'darwin-arm64': f'openclaw-{version}-darwin-arm64.tar.gz',
-                      'linux-x64':    f'openclaw-{version}-linux-x64.tar.gz',
-                  },
-                  'checksums': checksums,
-              }
-              versions.insert(0, entry)
-              manifest['versions'] = versions
+          # Always overwrite an existing entry for this version so that a
+          # re-sync (triggered because checksums were UNAVAILABLE) replaces
+          # the incomplete entry with the freshly-computed checksums.
+          versions = [v for v in versions if v['version'] != version]
+          entry = {
+              'version':     version,
+              'releaseDate': datetime.date.today().isoformat(),
+              'description': f'OpenClaw {version}',
+              'files': {
+                  'win32-x64':    f'openclaw-{version}-win32-x64.zip',
+                  'darwin-x64':   f'openclaw-{version}-darwin-x64.tar.gz',
+                  'darwin-arm64': f'openclaw-{version}-darwin-arm64.tar.gz',
+                  'linux-x64':    f'openclaw-{version}-linux-x64.tar.gz',
+              },
+              'checksums': checksums,
+          }
+          versions.insert(0, entry)
+          manifest['versions'] = versions
 
           manifest['latest'] = version
 
