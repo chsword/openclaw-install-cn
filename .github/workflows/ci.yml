@@ -425,10 +425,37 @@ jobs:
 
           if (-not $ok) { exit 1 }
 
+  # ── GUI Tests ──────────────────────────────────────────────────────────────
+  # Tests for gui/src/lib/ modules using Node.js built-in test runner.
+  # No npm install needed: all lib modules use only built-in Node.js modules.
+  test-gui:
+    name: Test GUI (${{ matrix.os }}, node${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: ['18', '20', '22', '24']
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ matrix.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Run GUI tests
+        run: npm test
+        working-directory: gui
+
   # ── Auto-tag on main branch (triggers release.yml) ───────────────────────
   auto-tag:
     name: Auto-tag release
-    needs: [test-cli, lint-cli, build-check-cli]
+    needs: [test-cli, lint-cli, build-check-cli, test-gui]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
