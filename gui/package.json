@@ -1,6 +1,6 @@
 {
   "name": "openclaw-gui",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "description": "OpenClaw cross-platform GUI installer/updater",
   "repository": {
     "type": "git",
