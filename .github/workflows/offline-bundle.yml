@@ -62,7 +62,7 @@ jobs:
       cli_version: ${{ steps.ver.outputs.version }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Node.js 18 (matches pkg targets)
         uses: actions/setup-node@v6
@@ -187,7 +187,7 @@ jobs:
       openclaw_version: ${{ steps.detect.outputs.version }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Detect upstream OpenClaw version
         id: detect
@@ -422,7 +422,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Download CLI packages artifact
         uses: actions/download-artifact@v8
