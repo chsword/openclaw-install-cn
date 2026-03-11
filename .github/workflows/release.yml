@@ -395,15 +395,40 @@ jobs:
         env:
           VERSION: ${{ steps.ver.outputs.version }}
 
+      - name: Fetch latest OpenClaw version from openclaw/openclaw
+        id: openclaw_ver
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          OPENCLAW_VERSION=$(curl -fsSL \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/openclaw/openclaw/releases/latest \
+            | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    tag = data.get('tag_name', '')
+    if not tag:
+        raise ValueError('tag_name missing or empty in API response')
+    print(tag, end='')
+except Exception as e:
+    sys.stderr.write(f'WARNING: Could not determine OpenClaw version: {e}\n')
+    sys.exit(1)
+") || { echo "::warning::Could not fetch latest OpenClaw version from openclaw/openclaw; leaving version blank"; OPENCLAW_VERSION=""; }
+          echo "openclaw_version=${OPENCLAW_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Latest OpenClaw version: ${OPENCLAW_VERSION:-<unknown>}"
+
       - name: Generate release notes
         id: notes
         run: |
           VERSION="${{ steps.ver.outputs.version }}"
           TAG="${{ steps.ver.outputs.tag }}"
+          OPENCLAW_VERSION="${{ steps.openclaw_ver.outputs.openclaw_version }}"
           cat > /tmp/release-notes.md << NOTES
           ## OpenClaw Installer ${TAG}
 
-          > 🔖 **当前 OpenClaw 最新版本：${TAG}**
+          > 🔖 **当前 OpenClaw 最新版本：${OPENCLAW_VERSION}**
 
           本版本通过 GitHub Actions 自动构建，包含以下组件：
 
