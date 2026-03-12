@@ -13,8 +13,8 @@
       },
       "checksums": {
         "win32-x64": "sha256:UNAVAILABLE",
-        "darwin-x64": "sha256:56edf0f8ea3930b47cca0164c978736b086499c6184cf06031e937a8b3cd9b93",
-        "darwin-arm64": "sha256:56edf0f8ea3930b47cca0164c978736b086499c6184cf06031e937a8b3cd9b93",
+        "darwin-x64": "sha256:dcb92c43a1973713ffedcaee22afb2993472a10b8d259eb2308175ea4dc45411",
+        "darwin-arm64": "sha256:dcb92c43a1973713ffedcaee22afb2993472a10b8d259eb2308175ea4dc45411",
         "linux-x64": "sha256:UNAVAILABLE"
       }
     },
