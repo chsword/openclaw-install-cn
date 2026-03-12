@@ -197,19 +197,25 @@ jobs:
             break
           done
           # Windows installer exe: try *win*.exe and *[Ss]etup*.exe patterns (any pre-release suffix)
+          # Fall back to any .exe not already matched (all .exe files are Windows executables)
           for f in upstream-assets/OpenClaw-${V}*[Ww]in*.exe \
                    upstream-assets/OpenClaw-${V}*[Ss]etup*.exe \
-                   upstream-assets/OpenClaw*[Ss]etup*${V}*.exe; do
+                   upstream-assets/OpenClaw*[Ss]etup*${V}*.exe \
+                   upstream-assets/OpenClaw-${V}*[Ii]nstall*.exe \
+                   upstream-assets/OpenClaw-${V}*.exe; do
             [ -f "$f" ] || continue
             CANON_WIN="openclaw-${V}-win32-x64.exe"
+            [ -f "upstream-assets/${CANON_WIN}" ] && break  # already normalized
             cp "$f" "upstream-assets/${CANON_WIN}"
             echo "  Normalized: $(basename "$f") → ${CANON_WIN}"
             break
           done
           # Windows portable zip: OpenClaw-{V}*win*.zip (any pre-release suffix)
-          for f in upstream-assets/OpenClaw-${V}*[Ww]in*.zip; do
+          for f in upstream-assets/OpenClaw-${V}*[Ww]in*.zip \
+                   upstream-assets/OpenClaw-${V}*[Pp]ortable*.zip; do
             [ -f "$f" ] || continue
             CANON_WIN_ZIP="openclaw-${V}-win32-x64.zip"
+            [ -f "upstream-assets/${CANON_WIN_ZIP}" ] && break  # already normalized
             cp "$f" "upstream-assets/${CANON_WIN_ZIP}"
             echo "  Normalized: $(basename "$f") → ${CANON_WIN_ZIP}"
             break
@@ -230,6 +236,46 @@ jobs:
             CANON_LX_TGZ="openclaw-${V}-linux-x64.tar.gz"
             cp "$f" "upstream-assets/${CANON_LX_TGZ}"
             echo "  Normalized: $(basename "$f") → ${CANON_LX_TGZ}"
+            break
+          done
+          # Linux tar.gz catch-all: matches OpenClaw-{V}-{prerelease}.tar.gz (no platform token).
+          # Electron-builder sometimes omits the platform from the filename.
+          # A .tar.gz is never macOS (macOS uses .dmg/.zip), so any unmatched .tar.gz is Linux.
+          for f in upstream-assets/OpenClaw-${V}*.tar.gz; do
+            [ -f "$f" ] || continue
+            CANON_LX_TGZ="openclaw-${V}-linux-x64.tar.gz"
+            [ -f "upstream-assets/${CANON_LX_TGZ}" ] && break  # already normalized above
+            cp "$f" "upstream-assets/${CANON_LX_TGZ}"
+            echo "  Normalized (tar.gz catch-all): $(basename "$f") → ${CANON_LX_TGZ}"
+            break
+          done
+          # Linux .deb package: wrap in tar.gz so CDN format is consistent.
+          # Handles both uppercase (OpenClaw-{V}*.deb) and Electron-builder lowercase
+          # naming (openclaw[-_]{V}*.deb, e.g. openclaw_2026.3.8-beta.1_amd64.deb).
+          for f in upstream-assets/OpenClaw-${V}*[Ll]inux*.deb \
+                   upstream-assets/OpenClaw-${V}*amd64*.deb \
+                   upstream-assets/OpenClaw-${V}*.deb \
+                   upstream-assets/openclaw[-_]${V}*.deb \
+                   upstream-assets/openclaw[-_]*amd64*.deb; do
+            [ -f "$f" ] || continue
+            CANON_LX_TGZ="openclaw-${V}-linux-x64.tar.gz"
+            [ -f "upstream-assets/${CANON_LX_TGZ}" ] && break  # already normalized
+            tar -czf "upstream-assets/${CANON_LX_TGZ}" -C upstream-assets "$(basename "$f")"
+            echo "  Normalized (deb→tar.gz): $(basename "$f") → ${CANON_LX_TGZ}"
+            break
+          done
+          # Linux .rpm package: normalize to a canonical .rpm filename for consistency,
+          # without wrapping it in a tar.gz (installer cannot handle nested .rpm files).
+          # Handles both uppercase (OpenClaw-{V}*.rpm) and lowercase (openclaw[-_]{V}*.rpm).
+          for f in upstream-assets/OpenClaw-${V}*.rpm \
+                   upstream-assets/openclaw[-_]${V}*.rpm \
+                   upstream-assets/openclaw[-_]*x86_64*.rpm \
+                   upstream-assets/openclaw[-_]*amd64*.rpm; do
+            [ -f "$f" ] || continue
+            CANON_LX_RPM="openclaw-${V}-linux-x64.rpm"
+            [ -f "upstream-assets/${CANON_LX_RPM}" ] && break  # already normalized
+            cp "$f" "upstream-assets/${CANON_LX_RPM}"
+            echo "  Normalized (rpm): $(basename "$f") → ${CANON_LX_RPM}"
             break
           done
 
@@ -274,6 +320,19 @@ jobs:
           echo ""
           echo "=== cdn-packages/ ==="
           ls -lh cdn-packages/ || echo "  (empty)"
+
+          echo ""
+          echo "=== Platform availability summary ==="
+          for plat_ext in "win32-x64:zip" "darwin-x64:tar.gz" "darwin-arm64:tar.gz" "linux-x64:tar.gz"; do
+            plat="${plat_ext%%:*}"; ext="${plat_ext##*:}"
+            pkg="cdn-packages/openclaw-${V}-${plat}.${ext}"
+            if [ -f "$pkg" ]; then
+              echo "  ✓  ${plat}"
+            else
+              echo "  ✗  ${plat}  (no upstream asset found – will be marked sha256:UNAVAILABLE)"
+              echo "::warning::OpenClaw ${V}: no upstream asset found for ${plat}. It will be marked as unavailable in the manifest until the upstream publishes this package."
+            fi
+          done
 
       # ── 5. Compute checksums and update cdn-template/manifest.json ─────────
       - name: Update cdn-template/manifest.json
@@ -372,6 +431,7 @@ jobs:
 
           # OpenClaw app packages go into pkg/{openclaw-ver}/ on CDN
           # (version track is completely independent of the installer's cli/ and gui/ tracks)
+          MISSING_PLATFORMS=""
           for plat_ext in \
             "win32-x64:zip" \
             "darwin-x64:tar.gz" \
@@ -386,8 +446,13 @@ jobs:
               cos_upload_if_new "$src" "$dst"
             else
               echo "SKIP (not built): $src"
+              MISSING_PLATFORMS="${MISSING_PLATFORMS} ${plat}"
             fi
           done
+
+          if [ -n "$MISSING_PLATFORMS" ]; then
+            echo "::warning::OpenClaw ${VERSION}: the following platforms were not found in the upstream release and could not be uploaded to CDN:${MISSING_PLATFORMS}. The upstream may publish these packages later – the next scheduled sync will retry automatically."
+          fi
 
           # Always overwrite manifest.json on CDN (not versioned; changes each sync)
           coscmd upload cdn-template/manifest.json manifest.json
