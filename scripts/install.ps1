@@ -21,7 +21,8 @@
 param(
   [string]$NodeMirror = $(if ($env:NODE_MIRROR) { $env:NODE_MIRROR } else { 'https://nodejs.org/dist' }),
   [switch]$AutoInstall,
-  [string]$LogFile = $(if ($env:OCLAW_LOG_FILE) { $env:OCLAW_LOG_FILE } else { Join-Path $env:TEMP "openclaw-install-$(Get-Date -Format 'yyyyMMdd-HHmmss').log" })
+  [string]$LogFile = $(if ($env:OCLAW_LOG_FILE) { $env:OCLAW_LOG_FILE } else { Join-Path $env:TEMP "openclaw-install-$(Get-Date -Format 'yyyyMMdd-HHmmss').log" }),
+  [switch]$IsTestRun
 )
 
 $script:InstallCommand = 'pnpm add -g openclaw@latest --registry=https://registry.npmmirror.com'
@@ -207,18 +208,20 @@ function Install-OpenClaw {
   Write-Success "OpenClaw $installed 安装成功。"
 }
 
-try {
-  New-Item -ItemType File -Path $LogFile -Force | Out-Null
-  Write-Info '开始检查安装环境...'
-  Test-Node
-  Ensure-Pnpm
-  Install-OpenClaw
-  Write-Host ''
-  Write-Success '全部完成。'
-  Write-Host "  日志文件: $LogFile" -ForegroundColor DarkGray
-} catch {
-  Write-Host ''
-  Write-Host "  安装失败: $_" -ForegroundColor Red
-  Write-Host "  日志文件: $LogFile" -ForegroundColor Yellow
-  exit 1
+if (-not $IsTestRun) {
+  try {
+    New-Item -ItemType File -Path $LogFile -Force | Out-Null
+    Write-Info '开始检查安装环境...'
+    Test-Node
+    Ensure-Pnpm
+    Install-OpenClaw
+    Write-Host ''
+    Write-Success '全部完成。'
+    Write-Host "  日志文件: $LogFile" -ForegroundColor DarkGray
+  } catch {
+    Write-Host ''
+    Write-Host "  安装失败: $_" -ForegroundColor Red
+    Write-Host "  日志文件: $LogFile" -ForegroundColor Yellow
+    exit 1
+  }
 }
