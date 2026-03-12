@@ -1,23 +1,6 @@
 {
-  "latest": "2026.3.11",
+  "latest": "2026.3.8",
   "versions": [
-    {
-      "version": "2026.3.11",
-      "releaseDate": "2026-03-12",
-      "description": "OpenClaw 2026.3.11",
-      "files": {
-        "win32-x64": "openclaw-2026.3.11-win32-x64.zip",
-        "darwin-x64": "openclaw-2026.3.11-darwin-x64.tar.gz",
-        "darwin-arm64": "openclaw-2026.3.11-darwin-arm64.tar.gz",
-        "linux-x64": "openclaw-2026.3.11-linux-x64.tar.gz"
-      },
-      "checksums": {
-        "win32-x64": "sha256:UNAVAILABLE",
-        "darwin-x64": "sha256:UNAVAILABLE",
-        "darwin-arm64": "sha256:UNAVAILABLE",
-        "linux-x64": "sha256:UNAVAILABLE"
-      }
-    },
     {
       "version": "2026.3.8",
       "releaseDate": "2026-03-12",
