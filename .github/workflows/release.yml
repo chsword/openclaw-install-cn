@@ -84,11 +84,11 @@ jobs:
               except subprocess.CalledProcessError:
                   pass
 
-              for path_str, field in [
-                  ('cli/package.json', 'version'),
-                  ('gui/package.json', 'version'),
-                  ('cdn-template/cli-manifest.json', 'latest'),
-              ]:
+                for path_str, field in [
+                    ('cli/package.json', 'version'),
+                    ('gui/package.json', 'version'),
+                    ('cdn-template/cli-manifest.json', 'latest'),
+                  ]:
                   path = Path(path_str)
                   if not path.exists():
                       continue
@@ -377,16 +377,14 @@ jobs:
           echo ""
           cat checksums.sha256
 
-      - name: Package artifacts for CDN
+      - name: Package CLI artifacts for CDN
         run: |
           VERSION="${{ steps.ver.outputs.version }}"
           mkdir -p cdn-packages
 
-          # CLI packages only – go to cli/{installer-ver}/ on CDN.
-          # OpenClaw app packages ({openclaw-ver}/openclaw-*) are handled
-          # independently by sync-openclaw.yml.
-          # Rename binaries to the canonical names expected by the bootstrap
-          # installers (install.ps1 looks for oclaw.exe; install.sh looks for oclaw).
+          # Only the installer CLI binaries are published to CDN here.
+          # OpenClaw itself is installed via pnpm and is not mirrored as offline packages.
+          # Rename binaries to the canonical names expected by the bootstrap installers.
           cp artifacts/cli/oclaw-win-x64.exe    artifacts/cli/oclaw.exe
           (cd artifacts/cli && zip "$OLDPWD/cdn-packages/oclaw-${VERSION}-win32-x64.zip" oclaw.exe)
 
@@ -406,8 +404,7 @@ jobs:
         run: |
           VERSION="${{ steps.ver.outputs.version }}"
           # Update CLI manifest only.
-          # manifest.json (OpenClaw app versions) is managed independently
-          # by sync-openclaw.yml and is NOT modified here.
+          # manifest.json is maintained independently as the latest OpenClaw version marker.
           python3 - <<'EOF'
           import json, sys, os, hashlib, glob as _glob
 
@@ -517,12 +514,20 @@ jobs:
           | \`oclaw-darwin-arm64\` | macOS | Apple Silicon |
           | \`oclaw-linux-x64\` | Linux | x64 |
 
-          **使用方式：**
+          **CLI 行为：**
           \`\`\`bash
+          # 检查环境与安装状态
+          oclaw status --check-updates
           # 安装 OpenClaw
           oclaw install
           # 检查和升级
           oclaw upgrade
+          \`\`\`
+
+          CLI 和 GUI 会先检查 Node.js、pnpm 和当前 OpenClaw 版本，再调用以下命令完成安装或升级：
+
+          \`\`\`bash
+          pnpm add -g openclaw@latest --registry=https://registry.npmmirror.com
           \`\`\`
 
           ### 🖥️ GUI 安装程序
@@ -556,35 +561,8 @@ jobs:
 
           | 文件 | 说明 |
           |------|------|
-          | \`manifest.json\` | OpenClaw 包版本清单模板 |
+          | \`manifest.json\` | OpenClaw 最新版本标记模板 |
           | \`cli-manifest.json\` | oclaw CLI 版本清单模板 |
-
-          ### 📌 离线安装说明（CLI）
-
-          本次发布包含 `oclaw` CLI 工具的离线包。使用离线（air-gap）模式时，请将本次 GitHub Release 附件中的 CLI 包按以下目录结构放置，并设置环境变量后运行安装脚本：
-
-          \`\`\`
-          openclaw-bundle/
-            cli-manifest.json
-            cli/${VERSION}/oclaw-${VERSION}-{os}-{arch}.{zip|tar.gz}
-            manifest.json              ← 从 CDN 下载（由 sync-openclaw 维护）
-            {openclaw-ver}/openclaw-{openclaw-ver}-{os}-{arch}.{zip|tar.gz}
-          \`\`\`
-
-          > OpenClaw 应用安装包（`{openclaw-ver}/openclaw-*`）由 `sync-openclaw.yml` 独立发布，
-          > 请从 CDN 直接下载对应版本，或在 GitHub Actions 页面手动触发 sync-openclaw 以获取特定版本。
-
-          **macOS / Linux：**
-          \`\`\`bash
-          export OCLAW_LOCAL_BUNDLE=/path/to/openclaw-bundle
-          bash install.sh
-          \`\`\`
-
-          **Windows：**
-          \`\`\`powershell
-          \$env:OCLAW_LOCAL_BUNDLE = "C:\path\to\openclaw-bundle"
-          .\install.ps1
-          \`\`\`
 
           ### 🔒 校验和
 
@@ -618,7 +596,7 @@ jobs:
             cdn-template/cli-manifest.json
             artifacts/checksums.sha256
 
-      # Upload cdn-packages and updated manifests as artifacts so that
+      # Upload installer CLI packages and updated manifests as artifacts so that
       # deploy-to-cos can reuse them without re-packaging from scratch.
       - name: Upload CDN packages artifact
         uses: actions/upload-artifact@v7
@@ -650,8 +628,7 @@ jobs:
           VERSION="${{ needs.resolve-version.outputs.version }}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      # Reuse the cdn-packages and updated manifests built by the release job
-      # instead of re-downloading all binaries and re-packaging them.
+      # Reuse the installer CLI packages and updated manifests built by the release job.
       - name: Download CDN packages
         uses: actions/download-artifact@v8
         with:
@@ -711,19 +688,13 @@ jobs:
             fi
           }
 
-          # Upload CLI packages (required – job fails if any are missing)
+          # Upload versioned installer CLI packages.
           cos_upload_if_new cdn-packages/oclaw-${VERSION}-win32-x64.zip       cli/${VERSION}/oclaw-${VERSION}-win32-x64.zip
           cos_upload_if_new cdn-packages/oclaw-${VERSION}-darwin-x64.tar.gz   cli/${VERSION}/oclaw-${VERSION}-darwin-x64.tar.gz
           cos_upload_if_new cdn-packages/oclaw-${VERSION}-darwin-arm64.tar.gz cli/${VERSION}/oclaw-${VERSION}-darwin-arm64.tar.gz
           cos_upload_if_new cdn-packages/oclaw-${VERSION}-linux-x64.tar.gz    cli/${VERSION}/oclaw-${VERSION}-linux-x64.tar.gz
 
-          # Note: OpenClaw app packages ({openclaw-ver}/openclaw-*) are uploaded
-          # independently by sync-openclaw.yml – not here.
-
-          # Upload GUI offline installer packages to gui/{VERSION}/ on COS.
-          # Windows: NSIS installer and portable exe (search recursively, skip win-unpacked/).
-          # macOS: DMG disk images (x64 and arm64).
-          # Linux: AppImage portable executable.
+          # Upload GUI installer packages to gui/{VERSION}/ on COS.
           find artifacts/gui/win/ -type f -name "*.exe" ! -path "*/win-unpacked/*" | while read -r f; do
             fname="$(basename "$f")"
             cos_upload_if_new "$f" "gui/${VERSION}/${fname}"
@@ -738,7 +709,7 @@ jobs:
           done
 
           # Upload install scripts and CLI manifest (always overwrite – these are not versioned).
-          # manifest.json (openclaw app packages) is managed by sync-openclaw.yml – NOT uploaded here.
+          # manifest.json is managed by sync-openclaw.yml as the latest OpenClaw version marker.
           coscmd upload scripts/install.sh  install.sh
           coscmd upload scripts/install.ps1 install.ps1
           coscmd upload cdn-template/cli-manifest.json cli-manifest.json

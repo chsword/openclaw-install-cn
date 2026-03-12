@@ -29,4 +29,8 @@ describe('compareSemver', () => {
   test('handles v prefix', () => {
     assert.equal(compareSemver('v1.2.3', '1.2.3'), 0);
   });
+
+  test('supports date-like versions', () => {
+    assert.equal(compareSemver('2026.3.8', '2026.3.7'), 1);
+  });
 });

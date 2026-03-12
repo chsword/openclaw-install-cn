@@ -2,285 +2,101 @@
 
 /**
  * `oclaw install` command.
- * Downloads and installs OpenClaw from CDN into the configured directory,
- * or installs from a local package directory / archive (offline mode).
+ * Verifies the runtime environment and installs OpenClaw via pnpm.
  */
 
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
 const { loadConfig, updateConfig } = require('../lib/config');
-const { getVersionInfo, buildDownloadUrl } = require('../lib/registry');
-const { downloadFile, verifyChecksum } = require('../lib/downloader');
-const {
-  extract,
-  backupInstallation,
-  removeBackup,
-  restoreBackup,
-  writeVersionMarker,
-  readVersionMarker,
-  isInstalled,
-} = require('../lib/installer');
-const { getPlatform, getArch, getPackageFilename } = require('../lib/platform');
+const registry = require('../lib/registry');
+const runtime = require('../lib/runtime');
 const log = require('../lib/logger');
 
-/**
- * Resolve local package info from a directory that mirrors the CDN structure.
- * The directory must contain a manifest.json file.
- *
- * @param {string} localDir   - absolute path to the local package directory
- * @param {string} [version]  - specific version requested (default: manifest.latest)
- * @param {string} platform
- * @param {string} arch
- * @returns {{ versionInfo: Object, archivePath: string }}
- */
-function resolveLocalPackageDir(localDir, version, platform, arch) {
-  const manifestPath = path.join(localDir, 'manifest.json');
-  if (!fs.existsSync(manifestPath)) {
-    log.error(`manifest.json not found in: ${localDir}`);
-    log.dim('The local package directory must contain a manifest.json file.');
+function exitForMissingPrerequisite(environment) {
+  if (!environment.node.installed) {
+    log.error('Node.js is not installed.');
+    log.dim('Please install Node.js 18 or newer first.');
     process.exit(1);
   }
 
-  let manifest;
-  try {
-    manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
-  } catch (err) {
-    log.error(`Failed to read manifest.json: ${err.message}`);
+  if (!environment.node.supported) {
+    log.error(`Node.js ${environment.node.version} is too old.`);
+    log.dim('Please upgrade Node.js to version 18 or newer.');
     process.exit(1);
   }
 
-  const target = version || manifest.latest;
-  if (!target) {
-    log.error('Could not determine version from local manifest.json.');
+  if (!environment.pnpm.installed) {
+    log.error('pnpm is not installed.');
+    log.dim('Install it with: npm install -g pnpm');
     process.exit(1);
   }
-
-  const versionInfo = (manifest.versions || []).find((v) => v.version === target);
-  if (!versionInfo) {
-    log.error(`Version ${target} not found in local manifest.json.`);
-    process.exit(1);
-  }
-
-  const platformKey = `${platform}-${arch}`;
-  const filename =
-    versionInfo.files && versionInfo.files[platformKey]
-      ? versionInfo.files[platformKey]
-      : getPackageFilename(versionInfo.version, platform, arch);
-
-  // Look in {dir}/pkg/{version}/{filename} (CDN-mirror layout),
-  // then {dir}/{version}/{filename} (legacy layout), then {dir}/{filename} (flat)
-  const archiveInPkgDir     = path.join(localDir, 'pkg', versionInfo.version, filename);
-  const archiveInVersionDir = path.join(localDir, versionInfo.version, filename);
-  const archiveFlat         = path.join(localDir, filename);
-
-  let archivePath;
-  if (fs.existsSync(archiveInPkgDir)) {
-    archivePath = archiveInPkgDir;
-  } else if (fs.existsSync(archiveInVersionDir)) {
-    archivePath = archiveInVersionDir;
-  } else if (fs.existsSync(archiveFlat)) {
-    archivePath = archiveFlat;
-  } else {
-    log.error(`Package file not found: ${filename}`);
-    log.dim('Expected locations:');
-    log.dim(`  ${archiveInPkgDir}`);
-    log.dim(`  ${archiveInVersionDir}`);
-    log.dim(`  ${archiveFlat}`);
-    process.exit(1);
-  }
-
-  return { versionInfo, archivePath };
 }
 
-/**
- * Run the install command.
- * @param {Object} options
- * @param {string} [options.version]       - specific version to install (default: latest)
- * @param {string} [options.dir]           - override install directory
- * @param {boolean} [options.force]        - force reinstall even if already installed
- * @param {string} [options.localPackage]  - path to a local package dir or archive (offline mode)
- */
 async function runInstall(options = {}) {
   const config = loadConfig();
-  const installDir = options.dir || config.installDir;
-  const platform = getPlatform();
-  const arch = getArch();
-  const platformKey = `${platform}-${arch}`;
 
-  let versionInfo;
-  let archivePath;
-  let shouldCleanupArchive = false;
+  log.step('Checking local environment...');
+  const environment = await runtime.inspectEnvironment();
+  exitForMissingPrerequisite(environment);
 
-  if (options.localPackage) {
-    // ── Offline / local-package mode ──────────────────────────────────────────
-    const localPath = path.resolve(options.localPackage);
+  log.success(`Node.js ${environment.node.version} detected.`);
+  log.success(`pnpm ${environment.pnpm.version} detected.`);
 
-    if (!fs.existsSync(localPath)) {
-      log.error(`Local package path not found: ${localPath}`);
-      process.exit(1);
-    }
-
-    const stat = fs.statSync(localPath);
-
-    if (stat.isDirectory()) {
-      log.step('Reading local package manifest...');
-      ({ versionInfo, archivePath } = resolveLocalPackageDir(
-        localPath,
-        options.version,
-        platform,
-        arch,
-      ));
-    } else {
-      // A specific archive file was provided directly
-      archivePath = localPath;
-      // Try to derive the version from the filename (e.g. openclaw-1.2.3-linux-x64.tar.gz)
-      const basename = path.basename(localPath);
-      const versionMatch = basename.match(/^openclaw-(\d+(?:\.\d+)*)-/);
-      const detectedVersion = versionMatch ? versionMatch[1] : 'local';
-      versionInfo = { version: detectedVersion, description: null };
-    }
-
-    log.step(
-      `Installing OpenClaw ${versionInfo.version} for ${platform}-${arch} from local package...`,
-    );
-    log.dim(`Package: ${archivePath}`);
-  } else {
-    // ── CDN / online mode ─────────────────────────────────────────────────────
-    const cdnBase = config.cdnBase;
-
-    log.step('Checking version information...');
-    log.debug(`CDN base: ${cdnBase}`);
-    try {
-      versionInfo = await getVersionInfo(cdnBase, options.version);
-    } catch (err) {
-      log.error(`Failed to fetch version info: ${err.message}`);
-      log.dim(`CDN base: ${cdnBase}`);
-      process.exit(1);
-    }
-
-    const version = versionInfo.version;
-
-    // Check if this platform's package is available before attempting to download.
-    const platformChecksum = versionInfo.checksums && versionInfo.checksums[platformKey];
-    if (platformChecksum === 'sha256:UNAVAILABLE') {
-      log.error(`OpenClaw ${version} is not available for ${platformKey}.`);
-      log.dim('The upstream has not published a package for this platform in this release.');
-      log.dim('Please try again later – the package may be published in a future sync.');
-      log.dim(`Upstream release: https://github.com/openclaw/openclaw/releases/tag/v${version}`);
-      process.exit(1);
-    }
-
-    const filename =
-      versionInfo.files && versionInfo.files[platformKey]
-        ? versionInfo.files[platformKey]
-        : getPackageFilename(version, platform, arch);
-
-    const downloadUrl = buildDownloadUrl(cdnBase, version, filename);
-    const tmpDir = path.join(os.tmpdir(), 'oclaw-install');
-    archivePath = path.join(tmpDir, filename);
-    shouldCleanupArchive = true;
-
-    if (!fs.existsSync(tmpDir)) {
-      fs.mkdirSync(tmpDir, { recursive: true });
-    }
-
-    log.debug(`Selected platform: ${platformKey}, file: ${filename}`);
-    log.debug(`Download URL: ${downloadUrl}`);
-
-    log.step(`Downloading OpenClaw ${version} for ${platform}-${arch}...`);
-    log.dim(`From: ${downloadUrl}`);
-
-    try {
-      await downloadFile(downloadUrl, archivePath, { showProgress: true });
-    } catch (err) {
-      log.error(`Download failed: ${err.message}`);
-      process.exit(1);
-    }
-
-    log.success('Download complete.');
-
-    // ── Integrity check ───────────────────────────────────────────────────────
-    const checksum = versionInfo.checksums && versionInfo.checksums[platformKey];
-    if (checksum) {
-      log.step('Verifying file integrity...');
-      try {
-        await verifyChecksum(archivePath, checksum);
-        log.success('Checksum verified.');
-      } catch (err) {
-        log.error(err.message);
-        log.dim('Please run the install command again to re-download the file.');
-        try { fs.unlinkSync(archivePath); } catch (cleanupErr) {
-          log.warn(`Could not remove corrupted download: ${cleanupErr.message}`);
-        }
-        process.exit(1);
-      }
-    }
+  let latestVersion;
+  try {
+    latestVersion = await registry.getLatestVersion(config.cdnBase);
+  } catch (err) {
+    log.error(`Failed to fetch latest OpenClaw version: ${err.message}`);
+    process.exit(1);
   }
 
-  const version = versionInfo.version;
+  if (environment.openclaw.installed) {
+    log.info(`Detected installed OpenClaw: ${environment.openclaw.version}`);
+  } else {
+    log.info('OpenClaw is not installed yet.');
+  }
+  log.info(`Latest version from manifest: ${latestVersion}`);
 
-  // Check if already installed at same version
-  if (!options.force && isInstalled(installDir)) {
-    const current = readVersionMarker(installDir);
-    if (current === version) {
-      log.success(`OpenClaw ${version} is already installed at: ${installDir}`);
-      log.dim('Use --force to reinstall.');
+  if (!options.force && environment.openclaw.installed) {
+    const comparison = runtime.compareVersions(environment.openclaw.version, latestVersion);
+    if (comparison >= 0) {
+      updateConfig({ installedVersion: environment.openclaw.version });
+      log.success(`OpenClaw ${environment.openclaw.version} is already up to date.`);
+      log.dim('Use --force to reinstall from pnpm.');
       return;
     }
   }
 
-  // Back up existing installation
-  let backupDir = null;
-  if (fs.existsSync(installDir)) {
-    log.step('Backing up existing installation...');
-    try {
-      backupDir = backupInstallation(installDir);
-      if (backupDir) log.dim(`Backup at: ${backupDir}`);
-    } catch (err) {
-      log.warn(`Could not back up existing installation: ${err.message}`);
-    }
-  }
+  log.step('Installing OpenClaw via pnpm...');
+  log.dim(runtime.getInstallCommandString());
 
-  log.step(`Installing to: ${installDir}`);
   try {
-    extract(archivePath, installDir);
-    writeVersionMarker(installDir, version);
+    await runtime.installOpenclaw({
+      onStdout: (text) => {
+        const message = text.trim();
+        if (message) {
+          log.debug(message);
+        }
+      },
+      onStderr: (text) => {
+        const message = text.trim();
+        if (message) {
+          log.debug(message);
+        }
+      },
+    });
   } catch (err) {
-    log.error(`Installation failed: ${err.message}`);
-    if (backupDir) {
-      log.step('Restoring previous installation...');
-      restoreBackup(backupDir, installDir);
-      log.success('Previous installation restored.');
-    }
+    log.error(`pnpm install failed: ${err.message}`);
     process.exit(1);
   }
 
-  // Clean up backup and (if downloaded) the temp archive
-  if (backupDir) {
-    try {
-      removeBackup(backupDir);
-    } catch {
-      log.warn(`Could not remove backup: ${backupDir}`);
-    }
-  }
-  if (shouldCleanupArchive) {
-    try {
-      fs.unlinkSync(archivePath);
-    } catch {
-      // non-fatal
-    }
+  const refreshed = await runtime.inspectEnvironment();
+  if (!refreshed.openclaw.installed || !refreshed.openclaw.version) {
+    log.error('OpenClaw installation finished, but the openclaw command is still unavailable.');
+    log.dim('Please ensure pnpm global bin is on PATH, then run openclaw --version.');
+    process.exit(1);
   }
 
-  // Persist installed version in config
-  updateConfig({ installedVersion: version, installDir });
-
-  log.success(`OpenClaw ${version} installed successfully!`);
-  log.dim(`Location: ${installDir}`);
-
-  if (versionInfo.description) {
-    log.info(`Release notes: ${versionInfo.description}`);
-  }
+  updateConfig({ installedVersion: refreshed.openclaw.version });
+  log.success(`OpenClaw ${refreshed.openclaw.version} installed successfully.`);
 }
 
-module.exports = { runInstall, resolveLocalPackageDir };
+module.exports = { runInstall, exitForMissingPrerequisite };

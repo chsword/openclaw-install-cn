@@ -1,17 +1,15 @@
 {
   "name": "openclaw-install-cn",
   "version": "1.0.20",
-  "description": "OpenClaw installer and updater for China mainland / restricted networks - installs from CDN without npm/GitHub access",
+  "description": "OpenClaw installer and updater for China mainland / restricted networks - installs via pnpm and npmmirror",
   "main": "src/index.js",
   "bin": {
     "oclaw": "bin/oclaw.js"
   },
   "scripts": {
     "start": "node bin/oclaw.js",
-    "test": "node --test src/__tests__/config.test.js src/__tests__/installer.test.js src/__tests__/install.test.js src/__tests__/platform.test.js src/__tests__/upgrade.test.js src/__tests__/downloader.test.js src/__tests__/logger.test.js src/__tests__/completion.test.js src/__tests__/status.test.js src/__tests__/config-cmd.test.js",
-    "test:integration": "node --test src/__tests__/integration/integration.test.js",
-    "test:offline": "node --test src/__tests__/integration/offline.test.js",
-    "test:all": "npm test && npm run test:integration && npm run test:offline",
+    "test": "node --test src/__tests__/config.test.js src/__tests__/platform.test.js src/__tests__/upgrade.test.js src/__tests__/logger.test.js src/__tests__/completion.test.js src/__tests__/status.test.js src/__tests__/config-cmd.test.js",
+    "test:all": "npm test",
     "lint": "eslint src/ bin/",
     "build": "npm run build:bin",
     "build:bin": "npm run build:win && npm run build:mac-x64 && npm run build:mac-arm64 && npm run build:linux",

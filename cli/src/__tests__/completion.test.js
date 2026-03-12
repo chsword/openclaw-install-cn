@@ -19,10 +19,7 @@ describe('SUBCOMMANDS metadata', () => {
   test('install subcommand has expected options', () => {
     const install = SUBCOMMANDS.find((c) => c.name === 'install');
     const flags = install.options.map((o) => o.flag);
-    assert.ok(flags.includes('--version'));
-    assert.ok(flags.includes('--dir'));
     assert.ok(flags.includes('--force'));
-    assert.ok(flags.includes('--local-package'));
   });
 });
 
@@ -50,7 +47,6 @@ describe('generateBash', () => {
   test('includes install options', () => {
     const script = generateBash();
     assert.ok(script.includes('--force'));
-    assert.ok(script.includes('--local-package'));
   });
 });
 
@@ -78,7 +74,6 @@ describe('generateZsh', () => {
   test('includes install options', () => {
     const script = generateZsh();
     assert.ok(script.includes('--force'));
-    assert.ok(script.includes('--local-package'));
   });
 });
 
@@ -102,7 +97,6 @@ describe('generateFish', () => {
   test('includes install options', () => {
     const script = generateFish();
     assert.ok(script.includes('--force') || script.includes('-l force'));
-    assert.ok(script.includes('local-package'));
   });
 });
 

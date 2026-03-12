@@ -2,35 +2,14 @@
 
 /**
  * `oclaw upgrade` command.
- * Checks for a newer version on CDN and upgrades if available.
+ * Checks for a newer version from manifest.json and upgrades with pnpm if needed.
  */
 
 const { loadConfig } = require('../lib/config');
-const { getLatestVersion, getVersionInfo } = require('../lib/registry');
-const { readVersionMarker, isInstalled } = require('../lib/installer');
+const registry = require('../lib/registry');
+const runtime = require('../lib/runtime');
 const { runInstall } = require('./install');
 const log = require('../lib/logger');
-
-/**
- * Compare two semver strings. Returns:
- *  1 if a > b
- * -1 if a < b
- *  0 if equal
- * @param {string} a
- * @param {string} b
- * @returns {number}
- */
-function compareSemver(a, b) {
-  const pa = a.replace(/^v/, '').split('.').map(Number);
-  const pb = b.replace(/^v/, '').split('.').map(Number);
-  for (let i = 0; i < 3; i++) {
-    const na = pa[i] || 0;
-    const nb = pb[i] || 0;
-    if (na > nb) return 1;
-    if (na < nb) return -1;
-  }
-  return 0;
-}
 
 /**
  * Run the upgrade command.
@@ -40,13 +19,29 @@ function compareSemver(a, b) {
  */
 async function runUpgrade(options = {}) {
   const config = loadConfig();
-  const cdnBase = config.cdnBase;
-  const installDir = config.installDir;
+  const environment = await runtime.inspectEnvironment();
+  const installedVersion = environment.openclaw.version || config.installedVersion;
 
-  // Determine current installed version
-  const installedVersion = readVersionMarker(installDir) || config.installedVersion;
+  if (!environment.node.installed || !environment.node.supported || !environment.pnpm.installed) {
+    if (options.json) {
+      console.log(JSON.stringify({
+        error: 'Node.js >= 18 and pnpm are required before upgrading OpenClaw.',
+      }, null, 2));
+    } else {
+      if (!environment.node.installed) {
+        log.warn('Node.js is not installed.');
+      } else if (!environment.node.supported) {
+        log.warn(`Node.js ${environment.node.version} is too old.`);
+      }
+      if (!environment.pnpm.installed) {
+        log.warn('pnpm is not installed.');
+        log.dim('Install it with: npm install -g pnpm');
+      }
+    }
+    process.exit(1);
+  }
 
-  if (!isInstalled(installDir) && !installedVersion) {
+  if (!environment.openclaw.installed && !installedVersion) {
     if (options.json) {
       console.log(JSON.stringify({ error: 'OpenClaw does not appear to be installed yet.' }, null, 2));
     } else {
@@ -59,7 +54,7 @@ async function runUpgrade(options = {}) {
   if (!options.json) log.step('Checking for updates...');
   let latestVersion;
   try {
-    latestVersion = await getLatestVersion(cdnBase);
+    latestVersion = await registry.getLatestVersion(config.cdnBase);
   } catch (err) {
     if (options.json) {
       console.log(JSON.stringify({ error: `Failed to check for updates: ${err.message}` }, null, 2));
@@ -69,7 +64,7 @@ async function runUpgrade(options = {}) {
     process.exit(1);
   }
 
-  const updateAvailable = compareSemver(latestVersion, installedVersion) > 0;
+  const updateAvailable = runtime.compareVersions(latestVersion, installedVersion) > 0;
 
   if (options.json && options.checkOnly) {
     console.log(JSON.stringify({
@@ -119,4 +114,4 @@ async function runUpgrade(options = {}) {
   }
 }
 
-module.exports = { runUpgrade, compareSemver };
+module.exports = { runUpgrade, compareSemver: runtime.compareVersions };

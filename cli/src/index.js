@@ -4,10 +4,10 @@
  * oclaw <command> [options]
  *
  * Usage:
- *   oclaw install    [--version <ver>] [--dir <path>] [--force]
+ *   oclaw install    [--force]
  *   oclaw upgrade    [--check] [--json]
  *   oclaw status     [--check-updates] [--json]
- *   oclaw config     [--dir <path>] [--reset] [--list] [--json]
+ *   oclaw config     [--reset] [--list] [--json]
  *   oclaw version
  *   oclaw completion [--shell bash|zsh|fish]
  */
@@ -18,7 +18,7 @@ const log = require('./lib/logger');
 
 program
   .name('oclaw')
-  .description('OpenClaw installer and updater — downloads only from CDN, no npm/GitHub required')
+  .description('OpenClaw installer and updater for pnpm + npmmirror environments')
   .version(pkg.version, '-v, --version', 'display the oclaw CLI version')
   .option('--verbose', 'enable verbose/debug output', false);
 
@@ -32,11 +32,8 @@ program.hook('preAction', () => {
 // ── install ────────────────────────────────────────────────────────────────────
 program
   .command('install')
-  .description('Download and install OpenClaw from CDN')
-  .option('--version <version>', 'install a specific version (default: latest)')
-  .option('--dir <path>', 'override installation directory')
-  .option('--force', 'reinstall even if already at the same version', false)
-  .option('--local-package <path>', 'install from a local directory or archive file (offline mode)')
+  .description('Verify prerequisites and install OpenClaw via pnpm')
+  .option('--force', 'reinstall even if already at the latest version', false)
   .action(async (opts) => {
     const { runInstall } = require('./commands/install');
     await runInstall(opts).catch(fatalError);
@@ -57,7 +54,7 @@ program
 program
   .command('status')
   .description('Show current installation status and version')
-  .option('--check-updates', 'also check CDN for the latest available version', false)
+  .option('--check-updates', 'also check manifest.json for the latest available version', false)
   .option('--json', 'output result as JSON', false)
   .action(async (opts) => {
     const { runStatus } = require('./commands/status');
@@ -67,8 +64,7 @@ program
 // ── config ─────────────────────────────────────────────────────────────────────
 program
   .command('config')
-  .description('View or update oclaw configuration')
-  .option('--dir <path>', 'set the installation directory')
+  .description('View oclaw configuration')
   .option('--reset', 'reset configuration to defaults', false)
   .option('--list', 'list current configuration (default action)', false)
   .option('--json', 'output result as JSON', false)

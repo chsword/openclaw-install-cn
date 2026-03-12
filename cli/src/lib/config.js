@@ -8,17 +8,17 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { getDefaultInstallDir } = require('./platform');
 
 const CONFIG_DIR = path.join(os.homedir(), '.oclaw');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
 const DEFAULT_CDN_BASE = 'https://oclaw.chatu.plus';
+const DEFAULT_NPM_REGISTRY = 'https://registry.npmmirror.com';
 
 /**
  * @typedef {Object} OclawConfig
  * @property {string} cdnBase   - CDN base URL (always the hardcoded constant; not user-configurable)
- * @property {string} installDir - OpenClaw installation directory
+ * @property {string} npmRegistry - npm registry used for pnpm global installs
  * @property {string|null} installedVersion - Currently installed version
  */
 
@@ -27,7 +27,7 @@ function getDefaults() {
   return {
     // cdnBase is always the hardcoded constant. OCLAW_CDN env var is a test-only override.
     cdnBase: process.env.OCLAW_CDN || DEFAULT_CDN_BASE,
-    installDir: getDefaultInstallDir(),
+    npmRegistry: DEFAULT_NPM_REGISTRY,
     installedVersion: null,
   };
 }
@@ -93,4 +93,5 @@ module.exports = {
   updateConfig,
   getConfigFilePath,
   DEFAULT_CDN_BASE,
+  DEFAULT_NPM_REGISTRY,
 };

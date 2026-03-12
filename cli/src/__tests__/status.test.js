@@ -7,23 +7,18 @@ const path = require('path');
 const os = require('os');
 
 const tmpDir = path.join(os.tmpdir(), `oclaw-status-test-${Date.now()}-${process.pid}`);
-const installDir = path.join(tmpDir, 'install');
 const configDir = path.join(tmpDir, '.oclaw');
 
-// Redirect config to temp dir
 process.env.HOME = tmpDir;
 if (process.platform === 'win32') {
-  // On Windows, os.homedir() uses USERPROFILE (not HOME)
   process.env.USERPROFILE = tmpDir;
   process.env.LOCALAPPDATA = path.join(tmpDir, 'AppData', 'Local');
 }
 
+const runtime = require('../lib/runtime');
+const registry = require('../lib/registry');
 const { runStatus } = require('../commands/status');
 
-/**
- * Capture console.log output while running fn(), then restore.
- * Returns an array of logged strings.
- */
 async function captureLog(fn) {
   const output = [];
   const orig = console.log.bind(console);
@@ -38,14 +33,11 @@ async function captureLog(fn) {
 
 describe('runStatus – JSON output', () => {
   before(() => {
-    fs.mkdirSync(installDir, { recursive: true });
+    fs.mkdirSync(tmpDir, { recursive: true });
     fs.mkdirSync(configDir, { recursive: true });
-    // Write a version marker so the install dir is recognised as installed
-    fs.writeFileSync(path.join(installDir, '.oclaw-version'), '1.2.3', 'utf-8');
-    // Write config pointing to our temp installDir
     fs.writeFileSync(
       path.join(configDir, 'config.json'),
-      JSON.stringify({ installDir }),
+      JSON.stringify({ installedVersion: '1.2.3' }),
       'utf-8'
     );
   });
@@ -55,21 +47,38 @@ describe('runStatus – JSON output', () => {
   });
 
   test('outputs valid JSON when --json flag is set', async () => {
+    const originalInspect = runtime.inspectEnvironment;
+    runtime.inspectEnvironment = async () => ({
+      node: { installed: true, version: '20.0.0', supported: true },
+      pnpm: { installed: true, version: '9.0.0' },
+      openclaw: { installed: true, version: '1.2.3' },
+    });
+
     const output = await captureLog(() => runStatus({ json: true }));
+    runtime.inspectEnvironment = originalInspect;
 
     assert.equal(output.length, 1, 'runStatus --json should call console.log exactly once');
     const parsed = JSON.parse(output[0]);
 
     assert.equal(typeof parsed.platform, 'string');
     assert.equal(typeof parsed.arch, 'string');
-    assert.equal(typeof parsed.installDir, 'string');
     assert.equal(typeof parsed.installed, 'boolean');
-    assert.ok(Object.prototype.hasOwnProperty.call(parsed, 'installedVersion'));
     assert.equal(typeof parsed.cdnBase, 'string');
+    assert.equal(typeof parsed.npmRegistry, 'string');
+    assert.equal(parsed.nodeVersion, '20.0.0');
+    assert.equal(parsed.pnpmVersion, '9.0.0');
   });
 
   test('JSON output includes installedVersion when installed', async () => {
+    const originalInspect = runtime.inspectEnvironment;
+    runtime.inspectEnvironment = async () => ({
+      node: { installed: true, version: '20.0.0', supported: true },
+      pnpm: { installed: true, version: '9.0.0' },
+      openclaw: { installed: true, version: '1.2.3' },
+    });
+
     const output = await captureLog(() => runStatus({ json: true }));
+    runtime.inspectEnvironment = originalInspect;
     const parsed = JSON.parse(output[0]);
 
     assert.equal(parsed.installed, true);
@@ -77,29 +86,51 @@ describe('runStatus – JSON output', () => {
   });
 
   test('JSON output does not include latestVersion when --check-updates is not set', async () => {
+    const originalInspect = runtime.inspectEnvironment;
+    runtime.inspectEnvironment = async () => ({
+      node: { installed: true, version: '20.0.0', supported: true },
+      pnpm: { installed: true, version: '9.0.0' },
+      openclaw: { installed: true, version: '1.2.3' },
+    });
+
     const output = await captureLog(() => runStatus({ json: true }));
+    runtime.inspectEnvironment = originalInspect;
     const parsed = JSON.parse(output[0]);
 
     assert.ok(!Object.prototype.hasOwnProperty.call(parsed, 'latestVersion'));
     assert.ok(!Object.prototype.hasOwnProperty.call(parsed, 'updateAvailable'));
   });
 
-  test('JSON output includes latestVersion or latestVersionError with --check-updates', async () => {
-    // getLatestVersion will fail (no real CDN in test), so latestVersionError is expected.
-    // JSON mode uses console.log only (not process.stdout.write), so no capture needed.
+  test('JSON output includes latestVersion with --check-updates', async () => {
+    const originalInspect = runtime.inspectEnvironment;
+    const originalLatest = registry.getLatestVersion;
+    runtime.inspectEnvironment = async () => ({
+      node: { installed: true, version: '20.0.0', supported: true },
+      pnpm: { installed: true, version: '9.0.0' },
+      openclaw: { installed: true, version: '1.2.3' },
+    });
+    registry.getLatestVersion = async () => '1.2.4';
+
     const output = await captureLog(() => runStatus({ json: true, checkUpdates: true }));
 
+    runtime.inspectEnvironment = originalInspect;
+    registry.getLatestVersion = originalLatest;
+
     const parsed = JSON.parse(output[0]);
-    assert.ok(
-      Object.prototype.hasOwnProperty.call(parsed, 'latestVersion') ||
-      Object.prototype.hasOwnProperty.call(parsed, 'latestVersionError'),
-      'Should have either latestVersion or latestVersionError'
-    );
+    assert.equal(parsed.latestVersion, '1.2.4');
+    assert.equal(parsed.updateAvailable, true);
   });
 
   test('human-readable output is produced when --json is not set', async () => {
-    // Without --check-updates, runStatus never calls process.stdout.write.
+    const originalInspect = runtime.inspectEnvironment;
+    runtime.inspectEnvironment = async () => ({
+      node: { installed: true, version: '20.0.0', supported: true },
+      pnpm: { installed: true, version: '9.0.0' },
+      openclaw: { installed: true, version: '1.2.3' },
+    });
+
     const output = await captureLog(() => runStatus({}));
+    runtime.inspectEnvironment = originalInspect;
 
     const combined = output.join('\n');
     assert.ok(combined.includes('OpenClaw Installation Status'), 'Should include header');

@@ -1,17 +1,7 @@
-name: Sync OpenClaw Upstream Release
+name: Sync OpenClaw Latest Version
 
-# Automatically mirrors the latest openclaw/openclaw release onto the CDN
-# (manifest.json + pkg/{openclaw-ver}/openclaw-* packages) without requiring a
-# new release of this installer project.
-#
-# Three independent version tracks on the CDN:
-#   pkg/{openclaw-ver}/openclaw-*  ← managed here (upstream OpenClaw app)
-#   cli/{installer-ver}/oclaw-*    ← managed by release.yml (this CLI tool)
-#   gui/{installer-ver}/openclaw-gui-* ← managed by release.yml (GUI installer)
-#
-# Triggered by:
-#   1. Daily schedule – polls for new upstream releases automatically
-#   2. workflow_dispatch – ad-hoc sync or force a specific version
+# Updates cdn-template/manifest.json so it only tracks the latest upstream
+# OpenClaw version. No upstream packages are downloaded, cached, or repackaged.
 on:
   schedule:
     - cron: '0 * * * *'   # every hour
@@ -25,18 +15,17 @@ on:
         default: ''
 
 permissions:
-  contents: write   # commit updated cdn-template/manifest.json back to main
+  contents: write
 
 jobs:
   sync:
-    name: Sync OpenClaw ${{ inputs.version || 'latest' }} → CDN
+    name: Sync OpenClaw latest version marker
     runs-on: ubuntu-latest
     environment: TencentSecretId
 
     steps:
       - uses: actions/checkout@v6
 
-      # ── 1. Resolve target upstream version ────────────────────────────────
       - name: Detect upstream OpenClaw version
         id: detect
         env:
@@ -58,7 +47,6 @@ jobs:
           echo "tag=$TAG"         >> "$GITHUB_OUTPUT"
           echo "Upstream OpenClaw version: $VERSION (tag: $TAG)"
 
-      # ── 2. Skip if this version is already in manifest.json ───────────────
       - name: Check if already synced
         id: check
         run: |
@@ -67,16 +55,7 @@ jobs:
           import json, sys
           try:
               m = json.load(open('cdn-template/manifest.json'))
-              entry = next((ve for ve in m.get('versions', []) if ve['version'] == '$VERSION'), None)
-              if entry is None:
-                  print('false')
-              elif any(v == 'sha256:UNAVAILABLE' for v in entry.get('checksums', {}).values()):
-                  # One or more platforms are missing – retry in case upstream
-                  # added those binaries since the last attempt.
-                  print('false')
-              else:
-                  # All platforms have real checksums; sync is complete.
-                  print('true')
+              print('true' if str(m.get('latest', '')).strip() == '$VERSION' else 'false')
           except Exception as e:
               sys.stderr.write(f'Warning: {e}\n')
               print('false')
@@ -84,312 +63,30 @@ jobs:
           )
           echo "already_present=$PRESENT" >> "$GITHUB_OUTPUT"
           if [ "$PRESENT" = "true" ]; then
-            echo "::notice::OpenClaw $VERSION is already in manifest.json with all platforms – nothing to do."
+            echo "::notice::OpenClaw $VERSION is already the latest version in manifest.json – nothing to do."
           else
-            echo "OpenClaw $VERSION is new or has missing platforms – will sync to CDN."
+            echo "OpenClaw $VERSION is new – will sync manifest and CDN metadata."
           fi
 
-      # ── 3. Download all release assets from openclaw/openclaw ─────────────
-      - name: Download upstream release assets
-        if: steps.check.outputs.already_present != 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG:      ${{ steps.detect.outputs.tag }}
-        run: |
-          mkdir -p upstream-assets cdn-packages
-
-          RELEASE_JSON=$(curl -fsSL \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/openclaw/openclaw/releases/tags/${TAG}")
-
-          echo "=== Release info ==="
-          echo "$RELEASE_JSON" | python3 -c "
-          import sys, json
-          d = json.load(sys.stdin)
-          print(f'  name:   {d.get(\"name\",\"\")}')
-          print(f'  tag:    {d.get(\"tag_name\",\"\")}')
-          print(f'  assets: {len(d.get(\"assets\",[]))}')
-          for a in d.get('assets', []):
-              print(f'    {a[\"name\"]}  ({a[\"size\"]:,} bytes)')
-          "
-          # Build asset download list: "name|url" per line
-          echo "$RELEASE_JSON" | python3 -c "
-          import sys, json
-          d = json.load(sys.stdin)
-          for a in d.get('assets', []):
-              print(a['name'] + '|' + a['browser_download_url'])
-          " > /tmp/asset-list.txt
-
-          echo ""
-          echo "=== Downloading assets ==="
-          while IFS='|' read -r name url; do
-            [ -z "$name" ] && continue
-            echo "  ↓ $name"
-            curl -fsSL -L \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -o "upstream-assets/$name" \
-              "$url"
-          done < /tmp/asset-list.txt
-
-          echo ""
-          echo "=== upstream-assets/ ==="
-          ls -lh upstream-assets/
-
-      # ── 4. Repackage upstream assets into CDN-expected format ──────────────
-      # Expected CDN layout: pkg/{openclaw-ver}/openclaw-{ver}-{platform}.{ext}
-      # The upstream release may use different file-name conventions; we try
-      # several patterns per platform and fall back gracefully.
-      - name: Repackage upstream assets for CDN
-        if: steps.check.outputs.already_present != 'true'
-        env:
-          VERSION: ${{ steps.detect.outputs.version }}
-        run: |
-          # Helper: find the first matching candidate in upstream-assets/ and
-          # convert it to the expected CDN target format ($1).
-          # Returns 0 on success, 1 if no candidate matched.
-          repackage() {
-            local dst="$1"; shift
-            for candidate in "$@"; do
-              [ -f "upstream-assets/$candidate" ] || continue
-              echo "  MATCH  $candidate  →  $(basename "$dst")"
-              case "$candidate" in
-                *.zip)
-                  if [[ "$dst" == *.zip ]];    then cp "upstream-assets/$candidate" "$dst"
-                  else tar -czf "$dst" -C upstream-assets "$candidate"; fi ;;
-                *.tar.gz|*.tgz)
-                  if [[ "$dst" == *.tar.gz ]]; then cp "upstream-assets/$candidate" "$dst"
-                  else (cd upstream-assets && zip "../$dst" "$candidate"); fi ;;
-                *.dmg|*.AppImage)
-                  tar -czf "$dst" -C upstream-assets "$candidate" ;;
-                *.exe)
-                  (cd upstream-assets && zip "../$dst" "$candidate") ;;
-                *)
-                  cp "upstream-assets/$candidate" "$dst" ;;
-              esac
-              return 0
-            done
-            echo "  SKIP   (no upstream asset matched) → $(basename "$dst")"
-            return 1
-          }
-
-          V="$VERSION"
-
-          # Normalize upstream asset names that use OpenClaw's own conventions
-          # (e.g. "OpenClaw-2026.3.8-beta.1.dmg") to canonical names that the
-          # repackage candidates list below can match.
-          # macOS DMG: OpenClaw-{V}*.dmg  (universal binary; maps to both x64 and arm64)
-          for f in upstream-assets/OpenClaw-${V}*.dmg; do
-            [ -f "$f" ] || continue
-            CANON_DMG="openclaw-${V}-mac-universal.dmg"
-            cp "$f" "upstream-assets/${CANON_DMG}"
-            echo "  Normalized: $(basename "$f") → ${CANON_DMG}"
-            break
-          done
-          # macOS app zip: OpenClaw-{V}*.zip (exclude dSYM debug archives and Windows portable zips)
-          for f in upstream-assets/OpenClaw-${V}*.zip; do
-            [[ "$f" == *dSYM* ]] && continue
-            [[ "$f" =~ [Ww]in ]] && continue   # skip Windows portable zips
-            [ -f "$f" ] || continue
-            CANON_ZIP="openclaw-${V}-mac-universal.zip"
-            cp "$f" "upstream-assets/${CANON_ZIP}"
-            echo "  Normalized: $(basename "$f") → ${CANON_ZIP}"
-            break
-          done
-          # Windows installer exe: try *win*.exe and *[Ss]etup*.exe patterns (any pre-release suffix)
-          # Fall back to any .exe not already matched (all .exe files are Windows executables)
-          for f in upstream-assets/OpenClaw-${V}*[Ww]in*.exe \
-                   upstream-assets/OpenClaw-${V}*[Ss]etup*.exe \
-                   upstream-assets/OpenClaw*[Ss]etup*${V}*.exe \
-                   upstream-assets/OpenClaw-${V}*[Ii]nstall*.exe \
-                   upstream-assets/OpenClaw-${V}*.exe; do
-            [ -f "$f" ] || continue
-            CANON_WIN="openclaw-${V}-win32-x64.exe"
-            [ -f "upstream-assets/${CANON_WIN}" ] && break  # already normalized
-            cp "$f" "upstream-assets/${CANON_WIN}"
-            echo "  Normalized: $(basename "$f") → ${CANON_WIN}"
-            break
-          done
-          # Windows portable zip: OpenClaw-{V}*win*.zip (any pre-release suffix)
-          for f in upstream-assets/OpenClaw-${V}*[Ww]in*.zip \
-                   upstream-assets/OpenClaw-${V}*[Pp]ortable*.zip; do
-            [ -f "$f" ] || continue
-            CANON_WIN_ZIP="openclaw-${V}-win32-x64.zip"
-            [ -f "upstream-assets/${CANON_WIN_ZIP}" ] && break  # already normalized
-            cp "$f" "upstream-assets/${CANON_WIN_ZIP}"
-            echo "  Normalized: $(basename "$f") → ${CANON_WIN_ZIP}"
-            break
-          done
-          # Linux AppImage: OpenClaw-{V}*.AppImage (any pre-release suffix)
-          for f in upstream-assets/OpenClaw-${V}*.AppImage; do
-            [ -f "$f" ] || continue
-            CANON_LX="openclaw-${V}-linux-x64.AppImage"
-            cp "$f" "upstream-assets/${CANON_LX}"
-            echo "  Normalized: $(basename "$f") → ${CANON_LX}"
-            break
-          done
-          # Linux tar.gz: OpenClaw-{V}*linux*.tar.gz / *amd64*.tar.gz (any pre-release suffix)
-          for f in upstream-assets/OpenClaw-${V}*[Ll]inux*.tar.gz \
-                   upstream-assets/OpenClaw-${V}*amd64*.tar.gz \
-                   upstream-assets/OpenClaw-${V}*x86_64*.tar.gz; do
-            [ -f "$f" ] || continue
-            CANON_LX_TGZ="openclaw-${V}-linux-x64.tar.gz"
-            cp "$f" "upstream-assets/${CANON_LX_TGZ}"
-            echo "  Normalized: $(basename "$f") → ${CANON_LX_TGZ}"
-            break
-          done
-          # Linux tar.gz catch-all: matches OpenClaw-{V}-{prerelease}.tar.gz (no platform token).
-          # Electron-builder sometimes omits the platform from the filename.
-          # A .tar.gz is never macOS (macOS uses .dmg/.zip), so any unmatched .tar.gz is Linux.
-          for f in upstream-assets/OpenClaw-${V}*.tar.gz; do
-            [ -f "$f" ] || continue
-            CANON_LX_TGZ="openclaw-${V}-linux-x64.tar.gz"
-            [ -f "upstream-assets/${CANON_LX_TGZ}" ] && break  # already normalized above
-            cp "$f" "upstream-assets/${CANON_LX_TGZ}"
-            echo "  Normalized (tar.gz catch-all): $(basename "$f") → ${CANON_LX_TGZ}"
-            break
-          done
-          # Linux .deb package: wrap in tar.gz so CDN format is consistent.
-          # Handles both uppercase (OpenClaw-{V}*.deb) and Electron-builder lowercase
-          # naming (openclaw[-_]{V}*.deb, e.g. openclaw_2026.3.8-beta.1_amd64.deb).
-          for f in upstream-assets/OpenClaw-${V}*[Ll]inux*.deb \
-                   upstream-assets/OpenClaw-${V}*amd64*.deb \
-                   upstream-assets/OpenClaw-${V}*.deb \
-                   upstream-assets/openclaw[-_]${V}*.deb \
-                   upstream-assets/openclaw[-_]*amd64*.deb; do
-            [ -f "$f" ] || continue
-            CANON_LX_TGZ="openclaw-${V}-linux-x64.tar.gz"
-            [ -f "upstream-assets/${CANON_LX_TGZ}" ] && break  # already normalized
-            tar -czf "upstream-assets/${CANON_LX_TGZ}" -C upstream-assets "$(basename "$f")"
-            echo "  Normalized (deb→tar.gz): $(basename "$f") → ${CANON_LX_TGZ}"
-            break
-          done
-          # Linux .rpm package: normalize to a canonical .rpm filename for consistency,
-          # without wrapping it in a tar.gz (installer cannot handle nested .rpm files).
-          # Handles both uppercase (OpenClaw-{V}*.rpm) and lowercase (openclaw[-_]{V}*.rpm).
-          for f in upstream-assets/OpenClaw-${V}*.rpm \
-                   upstream-assets/openclaw[-_]${V}*.rpm \
-                   upstream-assets/openclaw[-_]*x86_64*.rpm \
-                   upstream-assets/openclaw[-_]*amd64*.rpm; do
-            [ -f "$f" ] || continue
-            CANON_LX_RPM="openclaw-${V}-linux-x64.rpm"
-            [ -f "upstream-assets/${CANON_LX_RPM}" ] && break  # already normalized
-            cp "$f" "upstream-assets/${CANON_LX_RPM}"
-            echo "  Normalized (rpm): $(basename "$f") → ${CANON_LX_RPM}"
-            break
-          done
-
-          # Windows x64
-          repackage "cdn-packages/openclaw-${V}-win32-x64.zip" \
-            "openclaw-${V}-win32-x64.zip" \
-            "openclaw-${V}-win-x64.zip" \
-            "OpenClaw-${V}-win32-x64.zip" \
-            "openclaw-${V}-win32-x64.exe" \
-            "openclaw-${V}-setup-x64.exe" \
-            "openclaw-${V}-setup.exe" \
-            "OpenClaw Setup ${V}.exe" || true
-
-          # macOS Intel (x64) – also accepts a universal binary
-          repackage "cdn-packages/openclaw-${V}-darwin-x64.tar.gz" \
-            "openclaw-${V}-darwin-x64.tar.gz" \
-            "openclaw-${V}-mac-x64.tar.gz" \
-            "openclaw-${V}-darwin-x64.dmg" \
-            "openclaw-${V}-mac-x64.dmg" \
-            "openclaw-${V}-x64.dmg" \
-            "openclaw-${V}-mac-universal.dmg" \
-            "openclaw-${V}-mac-universal.zip" || true
-
-          # macOS Apple Silicon (arm64) – also accepts a universal binary
-          repackage "cdn-packages/openclaw-${V}-darwin-arm64.tar.gz" \
-            "openclaw-${V}-darwin-arm64.tar.gz" \
-            "openclaw-${V}-mac-arm64.tar.gz" \
-            "openclaw-${V}-darwin-arm64.dmg" \
-            "openclaw-${V}-mac-arm64.dmg" \
-            "openclaw-${V}-arm64.dmg" \
-            "openclaw-${V}-mac-universal.dmg" \
-            "openclaw-${V}-mac-universal.zip" || true
-
-          # Linux x64
-          repackage "cdn-packages/openclaw-${V}-linux-x64.tar.gz" \
-            "openclaw-${V}-linux-x64.tar.gz" \
-            "openclaw-${V}-linux-amd64.tar.gz" \
-            "openclaw-${V}-linux-x64.AppImage" \
-            "openclaw-${V}-x64.AppImage" \
-            "openclaw-${V}-amd64.AppImage" || true
-
-          echo ""
-          echo "=== cdn-packages/ ==="
-          ls -lh cdn-packages/ || echo "  (empty)"
-
-          echo ""
-          echo "=== Platform availability summary ==="
-          for plat_ext in "win32-x64:zip" "darwin-x64:tar.gz" "darwin-arm64:tar.gz" "linux-x64:tar.gz"; do
-            plat="${plat_ext%%:*}"; ext="${plat_ext##*:}"
-            pkg="cdn-packages/openclaw-${V}-${plat}.${ext}"
-            if [ -f "$pkg" ]; then
-              echo "  ✓  ${plat}"
-            else
-              echo "  ✗  ${plat}  (no upstream asset found – will be marked sha256:UNAVAILABLE)"
-              echo "::warning::OpenClaw ${V}: no upstream asset found for ${plat}. It will be marked as unavailable in the manifest until the upstream publishes this package."
-            fi
-          done
-
-      # ── 5. Compute checksums and update cdn-template/manifest.json ─────────
       - name: Update cdn-template/manifest.json
         if: steps.check.outputs.already_present != 'true'
         env:
           VERSION: ${{ steps.detect.outputs.version }}
         run: |
           python3 - <<'PYEOF'
-          import json, os, hashlib, datetime
-
-          def sha256_file(path):
-              h = hashlib.sha256()
-              with open(path, 'rb') as f:
-                  for chunk in iter(lambda: f.read(65536), b''):
-                      h.update(chunk)
-              return h.hexdigest()
-
-          def checksum_for(path):
-              if os.path.exists(path):
-                  return 'sha256:' + sha256_file(path)
-              return 'sha256:UNAVAILABLE'
+          import json, os, datetime
 
           version = os.environ['VERSION']
-          cdn_dir = 'cdn-packages'
-
-          checksums = {
-              'win32-x64':    checksum_for(f'{cdn_dir}/openclaw-{version}-win32-x64.zip'),
-              'darwin-x64':   checksum_for(f'{cdn_dir}/openclaw-{version}-darwin-x64.tar.gz'),
-              'darwin-arm64': checksum_for(f'{cdn_dir}/openclaw-{version}-darwin-arm64.tar.gz'),
-              'linux-x64':    checksum_for(f'{cdn_dir}/openclaw-{version}-linux-x64.tar.gz'),
-          }
-          print(f'Checksums: {checksums}')
 
           manifest_path = 'cdn-template/manifest.json'
           with open(manifest_path) as f:
               manifest = json.load(f)
 
-          versions = manifest.get('versions', [])
-          # Always overwrite an existing entry for this version so that a
-          # re-sync (triggered because checksums were UNAVAILABLE) replaces
-          # the incomplete entry with the freshly-computed checksums.
-          versions = [v for v in versions if v['version'] != version]
-          entry = {
-              'version':     version,
+          manifest['versions'] = [{
+              'version': version,
               'releaseDate': datetime.date.today().isoformat(),
               'description': f'OpenClaw {version}',
-              'files': {
-                  'win32-x64':    f'openclaw-{version}-win32-x64.zip',
-                  'darwin-x64':   f'openclaw-{version}-darwin-x64.tar.gz',
-                  'darwin-arm64': f'openclaw-{version}-darwin-arm64.tar.gz',
-                  'linux-x64':    f'openclaw-{version}-linux-x64.tar.gz',
-              },
-              'checksums': checksums,
-          }
-          versions.insert(0, entry)
-          manifest['versions'] = versions
-
+          }]
           manifest['latest'] = version
 
           with open(manifest_path, 'w') as f:
@@ -398,15 +95,11 @@ jobs:
           print(f'Updated {manifest_path}  latest={version}')
           PYEOF
 
-      # ── 6. Upload to Tencent COS ───────────────────────────────────────────
-      - name: Upload packages to COS
+      - name: Upload manifest to COS
         if: steps.check.outputs.already_present != 'true'
-        env:
-          VERSION:   ${{ steps.detect.outputs.version }}
-          COS_BUCKET: ${{ vars.BUCKET }}
-          COS_REGION: ${{ vars.REGION }}
         run: |
-          # Skip COS upload if credentials are not configured.
+          COS_BUCKET="${{ vars.BUCKET }}"
+          COS_REGION="${{ vars.REGION }}"
           if [ -z "${COS_BUCKET}" ] || [ -z "${COS_REGION}" ]; then
             echo "::warning::COS credentials (BUCKET/REGION) are not configured – skipping CDN upload. manifest.json is still committed to the repository."
             exit 0
@@ -419,49 +112,11 @@ jobs:
             -b "${COS_BUCKET}" \
             -r "${COS_REGION}"
 
-          cos_upload_if_new() {
-            local src="$1" dst="$2"
-            if coscmd info "$dst" >/dev/null 2>&1; then
-              echo "SKIP  $dst (already on COS)"
-            else
-              echo "UPLOAD $src → $dst"
-              coscmd upload "$src" "$dst"
-            fi
-          }
-
-          # OpenClaw app packages go into pkg/{openclaw-ver}/ on CDN
-          # (version track is completely independent of the installer's cli/ and gui/ tracks)
-          MISSING_PLATFORMS=""
-          for plat_ext in \
-            "win32-x64:zip" \
-            "darwin-x64:tar.gz" \
-            "darwin-arm64:tar.gz" \
-            "linux-x64:tar.gz"
-          do
-            plat="${plat_ext%%:*}"
-            ext="${plat_ext##*:}"
-            src="cdn-packages/openclaw-${VERSION}-${plat}.${ext}"
-            dst="pkg/${VERSION}/openclaw-${VERSION}-${plat}.${ext}"
-            if [ -f "$src" ]; then
-              cos_upload_if_new "$src" "$dst"
-            else
-              echo "SKIP (not built): $src"
-              MISSING_PLATFORMS="${MISSING_PLATFORMS} ${plat}"
-            fi
-          done
-
-          if [ -n "$MISSING_PLATFORMS" ]; then
-            echo "::warning::OpenClaw ${VERSION}: the following platforms were not found in the upstream release and could not be uploaded to CDN:${MISSING_PLATFORMS}. The upstream may publish these packages later – the next scheduled sync will retry automatically."
-          fi
-
-          # Always overwrite manifest.json on CDN (not versioned; changes each sync)
           coscmd upload cdn-template/manifest.json manifest.json
 
-      # ── 7. Refresh CDN cache for synced URLs ──────────────────────────────
       - name: Refresh CDN cache
         if: steps.check.outputs.already_present != 'true'
         env:
-          VERSION:    ${{ steps.detect.outputs.version }}
           CDN_DOMAIN: https://oclaw.chatu.plus
           COS_BUCKET: ${{ vars.BUCKET }}
           COS_REGION: ${{ vars.REGION }}
@@ -480,26 +135,13 @@ jobs:
 
           URLS=$(python3 - <<'PYEOF'
           import json, os
-          base = os.environ['CDN_DOMAIN']
-          v    = os.environ['VERSION']
-          urls = [base + '/manifest.json']
-          for plat, ext in [
-              ('win32-x64',    'zip'),
-              ('darwin-x64',   'tar.gz'),
-              ('darwin-arm64', 'tar.gz'),
-              ('linux-x64',    'tar.gz'),
-          ]:
-              urls.append(f'{base}/pkg/{v}/openclaw-{v}-{plat}.{ext}')
-          print(json.dumps(urls))
+          print(json.dumps([os.environ['CDN_DOMAIN'] + '/manifest.json']))
           PYEOF
           )
           echo "Purging CDN URLs: $URLS"
           tccli cdn PurgeUrlsCache --Urls "$URLS"
           echo "CDN cache purge submitted."
 
-      # ── 8. Commit updated manifest.json back to main ──────────────────────
-      # cdn-template/ is in ci.yml's paths-ignore so this commit won't
-      # retrigger the CI workflow.
       - name: Commit manifest.json update
         if: steps.check.outputs.already_present != 'true'
         run: |

@@ -10,127 +10,115 @@
   <a href="https://github.com/chsword/openclaw-install-cn/releases/latest">
     <img src="https://img.shields.io/github/v/release/chsword/openclaw-install-cn?label=latest" alt="Latest Release">
   </a>
-  <a href="https://opensource.org/licenses/MIT">
-    <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT">
-  </a>
-  <img src="https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg" alt="Node.js >= 18">
-  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue.svg" alt="Platform: Windows | macOS | Linux">
 </p>
 
 <p align="center">
-  OpenClaw 中国大陆 / 受限内网离线安装工具<br>
-  Install and update <a href="https://openclaw.ai/">OpenClaw</a> from a private CDN — no npm / GitHub access required.
+  OpenClaw 中国大陆安装助手<br>
+  使用 pnpm 与 npmmirror 安装和升级 <a href="https://openclaw.ai/">OpenClaw</a>
 </p>
 
----
+## 项目说明
 
-## 📖 项目背景
+这个仓库不再缓存、下载或构建离线版 OpenClaw 安装包。
 
-OpenClaw 是一个开源、本地运行的 AI Agent 平台，支持 Windows / macOS / Linux。  
-在中国大陆或受限内网环境中，其依赖包（npm、GitHub Release）无法正常下载。
+当前模型是：
 
-本项目提供：
+- CLI、GUI 和引导脚本先检查 Node.js、pnpm、OpenClaw 当前版本
+- `cdn-template/manifest.json` 只记录 OpenClaw 最新版本号，供升级检查使用
+- 实际安装和升级统一执行以下命令
 
-| 组件 | 说明 |
-|------|------|
-| **`cli/`** | 跨平台命令行工具 `oclaw`，用于安装、升级、查看状态和配置 CDN |
-| **`gui/`** | Windows（兼容 macOS/Linux）Electron GUI，提供图形化安装/升级/版本检查界面 |
-| **`scripts/`** | 一键引导脚本（`install.sh` / `install.ps1`），首次从 CDN 拉取 CLI 并完成安装 |
-| **`cdn-template/`** | CDN 目录结构模板和 manifest 格式说明，供运营者搭建私有 CDN 时参考 |
+```bash
+pnpm add -g openclaw@latest --registry=https://registry.npmmirror.com
+```
 
-所有 OpenClaw 安装包均从**官方 CDN**（腾讯云 COS + CDN，https://oclaw.chatu.plus）下载，不访问 npm 或 GitHub。
+仓库中仍然发布 `oclaw` CLI、GUI 安装程序以及引导脚本，方便用户在中国大陆环境下完成环境检查和安装引导。
 
----
+## 快速开始
 
-## 🚀 快速开始
+### 一键引导脚本
 
-### 方法一：一键引导脚本（推荐）
-
-**macOS / Linux：**
+macOS / Linux：
 
 ```bash
 curl -fsSL https://oclaw.chatu.plus/install.sh | bash
 ```
 
-**Windows（PowerShell）：**
+Windows PowerShell：
 
 ```powershell
 irm https://oclaw.chatu.plus/install.ps1 | iex
 ```
 
-### 方法二：直接使用 CLI
+引导脚本会执行以下流程：
 
-若 Node.js >= 18 已安装，可以直接克隆本仓库使用 CLI：
+1. 检查 Node.js 是否已安装且版本不低于 18
+2. 检查 pnpm 是否可用，缺失时尝试通过 npm 安装
+3. 检查当前是否已安装 OpenClaw
+4. 执行 pnpm 全局安装或升级命令
+
+### 直接使用 CLI
 
 ```bash
 git clone https://github.com/chsword/openclaw-install-cn.git
 cd openclaw-install-cn/cli
 npm install
 
-# 安装 OpenClaw
-node bin/oclaw.js install
-
-# 升级 OpenClaw
-node bin/oclaw.js upgrade
-
-# 查看安装状态
 node bin/oclaw.js status --check-updates
+node bin/oclaw.js install
+node bin/oclaw.js upgrade
 ```
 
----
+## CLI 用法
 
-## 🛠️ CLI 用法
-
-```
+```text
 oclaw <command> [options]
 
 Commands:
-  install [options]   从 CDN 下载并安装 OpenClaw
+  install [options]   检查环境并安装 OpenClaw
   upgrade [options]   检查并升级到最新版本
-  status  [options]   显示当前安装状态和版本信息
-  config  [options]   查看或修改 oclaw 配置
+  status  [options]   显示 Node.js、pnpm、OpenClaw 和最新版本状态
+  config  [options]   查看或重置 oclaw 配置
 
 Global options:
-  --verbose           启用详细/调试输出
+  --verbose           启用详细输出
 
 install options:
-  --version <ver>         安装指定版本（默认：最新版）
-  --dir <path>            覆盖安装目录
-  --force                 强制重新安装（即使版本相同）
-  --local-package <path>  从本地目录或压缩包安装（离线模式）
+  --force             强制重新安装
 
 upgrade options:
   --check             仅检查更新，不执行升级
   --json              以 JSON 格式输出结果
 
 status options:
-  --check-updates     同时查询 CDN 上的最新版本
+  --check-updates     同时查询最新版本
   --json              以 JSON 格式输出结果
 
 config options:
-  --dir <path>        设置安装目录
   --reset             重置为默认配置
   --list              列出当前配置（默认行为）
   --json              以 JSON 格式输出结果
 ```
 
-### 配置文件位置
+默认配置文件位置：
 
-| 平台 | 路径 |
-|------|------|
-| Linux | `~/.oclaw/config.json` |
-| macOS | `~/.oclaw/config.json` |
-| Windows | `%USERPROFILE%\.oclaw\config.json` |
+- Linux / macOS: `~/.oclaw/config.json`
+- Windows: `%USERPROFILE%\.oclaw\config.json`
 
----
+## GUI
 
-## 🖥️ GUI（Windows / macOS / Linux）
+GUI 基于 Electron，提供图形化的环境检查、版本检查、安装和升级流程。
 
-GUI 基于 Electron 构建，提供图形化界面，适合非技术用户。
+主要能力：
 
-📖 **[查看完整 GUI 使用说明 →](docs/gui-guide.md)**
+- 显示当前 OpenClaw 版本和最新版本
+- 显示 Node.js、pnpm 是否可用
+- 在缺少前置条件时给出明确提示
+- 调用 pnpm 完成安装或升级
+- 查看安装日志
 
-### 开发运行
+完整说明见 [docs/gui-guide.md](./docs/gui-guide.md)。
+
+本地开发运行：
 
 ```bash
 cd gui
@@ -138,90 +126,35 @@ npm install
 npm start
 ```
 
-### 功能
+## CDN 与 manifest
 
-- 显示当前安装版本和最新版本
-- 一键安装 / 升级（含下载进度条）
-- 配置安装目录
-- 点击安装目录可直接在文件管理器中打开
-- 查看详细安装日志（支持按级别过滤、导出）
+CDN 当前承担两类职责：
 
-### 界面预览
+1. 分发 `oclaw` CLI、GUI 安装程序和引导脚本
+2. 提供 `manifest.json` 与 `cli-manifest.json`
 
-![GUI 主界面](docs/screenshots/screenshot_01_main.png)
+其中：
 
-### 构建发布包
+- `manifest.json` 只标记当前最新 OpenClaw 版本
+- `cli-manifest.json` 记录 `oclaw` CLI 的发布版本
 
-```bash
-cd gui
-npm run build        # Windows NSIS 安装包 + 便携版
-npm run build:mac    # macOS DMG（x64 + arm64）
-npm run build:linux  # Linux AppImage（x64）
-npm run build:all    # Windows / macOS / Linux 全平台
-```
+不再存在 `pkg/{version}/openclaw-*` 这样的离线 OpenClaw 包目录。
 
----
+更多细节见 [docs/deployment.md](./docs/deployment.md) 和 [cdn-template/README.md](./cdn-template/README.md)。
 
-## ☁️ CDN 搭建
+## 开发
 
-请参考 [`cdn-template/`](./cdn-template/) 目录，其中包含：
+目录结构：
 
-- `manifest.json`：OpenClaw 包版本清单（格式说明）
-- `cli-manifest.json`：oclaw CLI 版本清单
-- `README.md`：完整的 CDN 目录结构和腾讯云 COS 配置建议
-
-### 发布新版本
-
-每次将 `main` 分支的 `cli/package.json` 版本号更新后推送，GitHub Actions 会自动：
-
-1. 创建对应的版本 Tag
-2. 构建所有平台的 CLI 安装包并上传到 CDN 的 `cli/{version}/` 目录
-3. 更新 `cli-manifest.json` 的 `latest` 字段和版本列表
-4. 自动刷新 CDN 缓存（CLI 包 + `cli-manifest.json`）
-
-`manifest.json`（OpenClaw 应用包版本）由 `sync-openclaw.yml` 每日自动维护，与安装工具发布独立。
-
-详细发布流程请参考 [docs/deployment.md](./docs/deployment.md)。
-
----
-
-## ⚙️ 空环境 vs 已安装环境
-
-| 情况 | 行为 |
-|------|------|
-| **空环境**（首次安装）| `oclaw install` 直接下载并解压到安装目录，写入 `.oclaw-version` 标记文件 |
-| **已安装 OpenClaw**（升级）| `oclaw upgrade` 检测版本差异，备份现有目录后覆盖安装，失败时自动回滚 |
-
-CLI 通过 `{installDir}/.oclaw-version` 文件识别当前安装版本，兼容空环境和已安装两种情况。
-
----
-
-## 🔧 开发
-
-### 目录结构
-
-```
+```text
 openclaw-install-cn/
-├── cli/                  # CLI 工具（Node.js）
-│   ├── bin/oclaw.js      # 入口脚本
-│   ├── src/
-│   │   ├── commands/     # 子命令：install, upgrade, status, config
-│   │   └── lib/          # 工具库：config, downloader, installer, platform, registry
-│   └── package.json
-├── gui/                  # Electron GUI
-│   ├── src/
-│   │   ├── main.js       # 主进程
-│   │   ├── preload.js    # 预加载脚本
-│   │   ├── lib/          # 共享库（引用 cli/src/lib/）
-│   │   └── renderer/     # 前端（HTML/CSS/JS）
-│   └── package.json
+├── cli/
+├── gui/
 ├── scripts/
-│   ├── install.sh        # macOS/Linux 引导脚本
-│   └── install.ps1       # Windows 引导脚本
-└── cdn-template/         # CDN 目录结构模板
+└── cdn-template/
 ```
 
-### 运行测试
+运行 CLI 测试：
 
 ```bash
 cd cli
@@ -229,17 +162,19 @@ npm install
 npm test
 ```
 
-### 依赖要求
+运行 GUI 测试：
 
-| 工具 | 版本 |
-|------|------|
-| Node.js | >= 18 |
-| npm | >= 8 |
-| unzip / tar | 系统内置（Linux/macOS 解压用） |
-| PowerShell | >= 5.1（Windows 解压用） |
+```bash
+cd gui
+npm test
+```
 
----
+依赖要求：
 
-## 📄 License
+- Node.js >= 18
+- npm >= 8
+- PowerShell >= 5.1（Windows）
+
+## License
 
 MIT

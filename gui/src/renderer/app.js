@@ -3,8 +3,11 @@
 /* ── DOM references ────────────────────────────────────────────────────────── */
 const elInstalledVersion = document.getElementById('val-installed-version');
 const elLatestVersion    = document.getElementById('val-latest-version');
-const elInstallDir       = document.getElementById('val-install-dir');
+const elNodeVersion      = document.getElementById('val-node-version');
+const elPnpmVersion      = document.getElementById('val-pnpm-version');
+const elInstallCommand   = document.getElementById('val-install-command');
 const elPlatform         = document.getElementById('val-platform');
+const envHint            = document.getElementById('env-hint');
 
 const btnInstall         = document.getElementById('btn-install');
 const btnCheck           = document.getElementById('btn-check');
@@ -16,13 +19,6 @@ const progressBar        = document.getElementById('progress-bar');
 const progressPct        = document.getElementById('progress-pct');
 
 const cardSettings       = document.getElementById('card-settings');
-const tabBtnConfig       = document.getElementById('tab-btn-config');
-const tabBtnLogs         = document.getElementById('tab-btn-logs');
-const tabConfig          = document.getElementById('tab-config');
-const tabLogs            = document.getElementById('tab-logs');
-const inpDir             = document.getElementById('inp-dir');
-const btnSaveSettings    = document.getElementById('btn-save-settings');
-const btnCancelSettings  = document.getElementById('btn-cancel-settings');
 const btnCancelLogs      = document.getElementById('btn-cancel-logs');
 const logViewer          = document.getElementById('log-viewer');
 const logEmpty           = document.getElementById('log-empty');
@@ -59,6 +55,11 @@ function setButtonsBusy(isBusy) {
   btnCheck.disabled   = isBusy;
 }
 
+function setValue(el, text, className = '') {
+  el.textContent = text;
+  el.className = `status-value ${className}`.trim();
+}
+
 function fmtBytes(bytes) {
   if (bytes === 0) return '0 B';
   const k = 1024;
@@ -73,16 +74,42 @@ async function loadStatus() {
     currentStatus = await window.oclaw.getStatus();
 
     elPlatform.textContent = `${currentStatus.platform} (${currentStatus.arch})`;
-    elInstallDir.textContent = currentStatus.installDir;
+    elInstallCommand.textContent = currentStatus.installCommand;
+
+    if (currentStatus.node.installed) {
+      setValue(elNodeVersion, currentStatus.node.version, currentStatus.node.supported ? 'ready' : 'update-available');
+    } else {
+      setValue(elNodeVersion, '未安装', 'missing');
+    }
+
+    if (currentStatus.pnpm.installed) {
+      setValue(elPnpmVersion, currentStatus.pnpm.version, 'ready');
+    } else {
+      setValue(elPnpmVersion, '未安装', 'missing');
+    }
 
     if (currentStatus.installed && currentStatus.installedVersion) {
-      elInstalledVersion.textContent = currentStatus.installedVersion;
-      elInstalledVersion.className = 'status-value installed';
+      setValue(elInstalledVersion, currentStatus.installedVersion, 'installed');
       btnInstall.textContent = '升级';
     } else {
-      elInstalledVersion.textContent = '未安装';
-      elInstalledVersion.className = 'status-value not-installed';
+      setValue(elInstalledVersion, '未安装', 'not-installed');
       btnInstall.textContent = '安装';
+    }
+
+    const missingNode = !currentStatus.node.installed || !currentStatus.node.supported;
+    const missingPnpm = !currentStatus.pnpm.installed;
+    btnInstall.disabled = missingNode || missingPnpm || busy;
+
+    if (missingNode) {
+      envHint.textContent = currentStatus.node.installed
+        ? `当前 Node.js 版本 ${currentStatus.node.version} 过低，至少需要 18。`
+        : '请先安装 Node.js 18 或更高版本，然后再执行安装。';
+    } else if (missingPnpm) {
+      envHint.textContent = '未检测到 pnpm。请先执行 npm install -g pnpm。';
+    } else if (currentStatus.installed && currentStatus.installedVersion) {
+      envHint.textContent = '环境检查已通过，可以直接检查更新或执行升级。';
+    } else {
+      envHint.textContent = '环境检查已通过，可以直接执行 pnpm 全局安装。';
     }
   } catch (err) {
     showMessage(`读取状态失败: ${err.message}`, 'error');
@@ -91,25 +118,25 @@ async function loadStatus() {
 
 /* ── Check for updates ─────────────────────────────────────────────────────── */
 async function checkLatest() {
-  elLatestVersion.textContent = '检查中…';
+  setValue(elLatestVersion, '检查中…');
   const result = await window.oclaw.checkLatest();
   if (result.success) {
     latestVersion = result.latest;
-    elLatestVersion.textContent = result.latest;
 
     const installed = currentStatus && currentStatus.installedVersion;
-    if (installed && installed !== result.latest) {
-      elLatestVersion.className = 'status-value update-available';
-      elLatestVersion.textContent += ' (有更新)';
+    if (installed && result.updateAvailable) {
+      setValue(elLatestVersion, `${result.latest} (有更新)`, 'update-available');
       btnInstall.textContent = '升级';
+      envHint.textContent = `检测到新版本 ${result.latest}，可以直接点击“升级”。`;
     } else if (installed === result.latest) {
-      elLatestVersion.className = 'status-value installed';
+      setValue(elLatestVersion, result.latest, 'installed');
+      envHint.textContent = '当前 OpenClaw 已是最新版本。';
     } else {
-      elLatestVersion.className = 'status-value';
+      setValue(elLatestVersion, result.latest);
     }
   } else {
-    elLatestVersion.textContent = `检查失败`;
-    showMessage(`无法连接 CDN: ${result.error}`, 'error');
+    setValue(elLatestVersion, '检查失败', 'missing');
+    showMessage(`无法读取 manifest.json: ${result.error}`, 'error');
   }
 }
 
@@ -121,23 +148,15 @@ async function doInstall() {
 
   cardProgress.style.display = 'block';
   progressBar.style.width = '0%';
-  progressPct.textContent = '0%';
-  progressStatus.textContent = '准备安装…';
+  progressPct.textContent = '执行中';
+  progressStatus.textContent = '准备检查环境…';
 
   // Set up progress listener
   window.oclaw.offInstallProgress();
   window.oclaw.onInstallProgress((data) => {
     if (data.type === 'status') {
       progressStatus.textContent = data.message;
-    } else if (data.type === 'download-progress') {
-      const { received, total } = data;
-      if (total > 0) {
-        const pct = Math.round((received / total) * 100);
-        progressBar.style.width = `${pct}%`;
-        progressPct.textContent = `${pct}%  ${fmtBytes(received)} / ${fmtBytes(total)}`;
-      } else {
-        progressPct.textContent = fmtBytes(received);
-      }
+      progressBar.style.width = '70%';
     }
   });
 
@@ -147,55 +166,33 @@ async function doInstall() {
 
   if (result.success) {
     progressBar.style.width = '100%';
-    progressPct.textContent = '100%';
-    showMessage(`✔ OpenClaw ${result.version} 安装成功！`, 'success');
+    progressPct.textContent = result.skipped ? '已最新' : '完成';
+    showMessage(result.skipped
+      ? `OpenClaw ${result.version} 已是最新版本。`
+      : `OpenClaw ${result.version} 安装成功。`, 'success');
     await loadStatus();
   } else {
+    progressBar.style.width = '100%';
+    progressBar.style.background = 'linear-gradient(90deg, #ef4444, #f97316)';
+    progressPct.textContent = '失败';
     showMessage(`✖ 安装失败: ${result.error}`, 'error');
   }
 
   setButtonsBusy(false);
 }
 
-/* ── Settings panel ────────────────────────────────────────────────────────── */
-function switchSettingsTab(tab) {
-  if (tab === 'config') {
-    tabBtnConfig.classList.add('active');
-    tabBtnLogs.classList.remove('active');
-    tabConfig.style.display = '';
-    tabLogs.style.display = 'none';
-    stopLogAutoRefresh();
-  } else {
-    tabBtnConfig.classList.remove('active');
-    tabBtnLogs.classList.add('active');
-    tabConfig.style.display = 'none';
-    tabLogs.style.display = '';
-    loadLogs();
-    startLogAutoRefresh();
-  }
-}
-
+/* ── Log panel ─────────────────────────────────────────────────────────────── */
 function openSettings() {
-  if (!currentStatus) return;
-  inpDir.value = currentStatus.installDir || '';
-  switchSettingsTab('config');
   cardSettings.style.display = 'block';
   cardProgress.style.display = 'none';
+  loadLogs();
+  startLogAutoRefresh();
   hideMessage();
 }
 
 function closeSettings() {
   cardSettings.style.display = 'none';
   stopLogAutoRefresh();
-}
-
-async function saveSettings() {
-  const updates = {};
-  if (inpDir.value.trim()) updates.installDir = inpDir.value.trim();
-  await window.oclaw.setConfig(updates);
-  closeSettings();
-  await loadStatus();
-  showMessage('设置已保存。', 'success');
 }
 
 /* ── Log viewer ────────────────────────────────────────────────────────────── */
@@ -312,22 +309,13 @@ btnCheck.addEventListener('click', async () => {
   setButtonsBusy(false);
 });
 btnSettings.addEventListener('click', openSettings);
-btnSaveSettings.addEventListener('click', saveSettings);
-btnCancelSettings.addEventListener('click', closeSettings);
 btnCancelLogs.addEventListener('click', closeSettings);
-tabBtnConfig.addEventListener('click', () => switchSettingsTab('config'));
-tabBtnLogs.addEventListener('click', () => switchSettingsTab('logs'));
 filterInfo.addEventListener('change', renderLogs);
 filterWarn.addEventListener('change', renderLogs);
 filterError.addEventListener('change', renderLogs);
 btnRefreshLogs.addEventListener('click', loadLogs);
 btnExportLogs.addEventListener('click', doExportLogs);
 btnClearLogs.addEventListener('click', doClearLogs);
-elInstallDir.addEventListener('click', () => {
-  if (currentStatus && currentStatus.installed) {
-    window.oclaw.openInstallDir();
-  }
-});
 
 /* ── Global renderer error boundary ───────────────────────────────────────── */
 window.onerror = function (message, source, lineno, colno, error) {

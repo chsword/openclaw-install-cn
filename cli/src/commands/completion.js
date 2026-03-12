@@ -9,12 +9,9 @@
 const SUBCOMMANDS = [
   {
     name: 'install',
-    description: 'Download and install OpenClaw from CDN',
+    description: 'Install or reinstall OpenClaw via pnpm',
     options: [
-      { flag: '--version', description: 'install a specific version (default: latest)', hasArg: true },
-      { flag: '--dir', description: 'override installation directory', hasArg: true },
-      { flag: '--force', description: 'reinstall even if already at the same version', hasArg: false },
-      { flag: '--local-package', description: 'install from a local directory or archive file (offline mode)', hasArg: true },
+      { flag: '--force', description: 'reinstall even if already at the latest version', hasArg: false },
     ],
   },
   {

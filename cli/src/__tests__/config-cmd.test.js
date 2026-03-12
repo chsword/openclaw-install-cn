@@ -50,7 +50,7 @@ describe('runConfig – JSON output', () => {
     const parsed = JSON.parse(output[0]);
 
     assert.equal(typeof parsed.cdnBase, 'string');
-    assert.equal(typeof parsed.installDir, 'string');
+    assert.equal(typeof parsed.npmRegistry, 'string');
     assert.ok(Object.prototype.hasOwnProperty.call(parsed, 'installedVersion'));
     assert.equal(typeof parsed.configFile, 'string');
   });

@@ -16,7 +16,14 @@ if (process.platform === 'win32') {
   process.env.USERPROFILE = tmpDir;
 }
 
-const { loadConfig, saveConfig, updateConfig, DEFAULT_CDN_BASE, getConfigFilePath } = require('../lib/config');
+const {
+  loadConfig,
+  saveConfig,
+  updateConfig,
+  DEFAULT_CDN_BASE,
+  DEFAULT_NPM_REGISTRY,
+  getConfigFilePath,
+} = require('../lib/config');
 
 describe('config', () => {
   before(() => {
@@ -30,18 +37,19 @@ describe('config', () => {
   test('loadConfig returns defaults when no config file exists', () => {
     const cfg = loadConfig();
     assert.equal(cfg.cdnBase, DEFAULT_CDN_BASE);
-    assert.ok(typeof cfg.installDir === 'string');
+    assert.equal(cfg.npmRegistry, DEFAULT_NPM_REGISTRY);
     assert.equal(cfg.installedVersion, null);
   });
 
   test('saveConfig and loadConfig round-trip', () => {
     const cfg = loadConfig();
-    cfg.installDir = path.join(tmpDir, 'my-install-dir');
+    cfg.installedVersion = '2.0.0';
     saveConfig(cfg);
     const loaded = loadConfig();
-    assert.equal(loaded.installDir, path.join(tmpDir, 'my-install-dir'));
+    assert.equal(loaded.installedVersion, '2.0.0');
     // cdnBase is always the hardcoded constant, never loaded from file
     assert.equal(loaded.cdnBase, DEFAULT_CDN_BASE);
+    assert.equal(loaded.npmRegistry, DEFAULT_NPM_REGISTRY);
   });
 
   test('saveConfig does not persist cdnBase to disk', () => {

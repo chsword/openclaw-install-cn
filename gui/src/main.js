@@ -13,9 +13,8 @@ const os = require('os');
 // These modules have no Electron dependency, so they can be shared directly.
 const configLib = require('./lib/config');
 const registryLib = require('./lib/registry');
-const downloaderLib = require('./lib/downloader');
-const installerLib = require('./lib/installer');
 const platformLib = require('./lib/platform');
+const runtimeLib = require('./lib/runtime');
 
 let mainWindow = null;
 
@@ -162,19 +161,18 @@ app.on('window-all-closed', () => {
 /** Get current status (installed version, CDN, platform info). */
 ipcMain.handle('get-status', async () => {
   const config = configLib.loadConfig();
-  const installDir = config.installDir;
-  const installed = installerLib.isInstalled(installDir);
-  const installedVersion = installed
-    ? installerLib.readVersionMarker(installDir)
-    : config.installedVersion;
+  const environment = await runtimeLib.inspectEnvironment();
 
   return {
-    installed,
-    installedVersion,
-    installDir,
+    installed: environment.openclaw.installed,
+    installedVersion: environment.openclaw.version || config.installedVersion,
     cdnBase: config.cdnBase,
+    npmRegistry: config.npmRegistry,
     platform: platformLib.getPlatformLabel(),
     arch: platformLib.getArch(),
+    node: environment.node,
+    pnpm: environment.pnpm,
+    installCommand: runtimeLib.getInstallCommandString(),
   };
 });
 
@@ -183,18 +181,13 @@ ipcMain.handle('check-latest', async () => {
   const config = configLib.loadConfig();
   try {
     const latest = await registryLib.getLatestVersion(config.cdnBase);
-    return { success: true, latest };
-  } catch (err) {
-    return { success: false, error: err.message };
-  }
-});
-
-/** Get full manifest info. */
-ipcMain.handle('get-manifest', async () => {
-  const config = configLib.loadConfig();
-  try {
-    const manifest = await registryLib.fetchManifest(config.cdnBase);
-    return { success: true, manifest };
+    const environment = await runtimeLib.inspectEnvironment();
+    return {
+      success: true,
+      latest,
+      installedVersion: environment.openclaw.version || config.installedVersion,
+      updateAvailable: !!environment.openclaw.version && runtimeLib.compareVersions(latest, environment.openclaw.version) > 0,
+    };
   } catch (err) {
     return { success: false, error: err.message };
   }
@@ -203,8 +196,6 @@ ipcMain.handle('get-manifest', async () => {
 /** Install or upgrade OpenClaw. Sends progress events back to renderer. */
 ipcMain.handle('install', async (_event, opts = {}) => {
   const config = configLib.loadConfig();
-  const cdnBase = config.cdnBase;
-  const installDir = opts.dir || config.installDir;
   const platform = platformLib.getPlatform();
   const arch = platformLib.getArch();
 
@@ -215,104 +206,64 @@ ipcMain.handle('install', async (_event, opts = {}) => {
   }
 
   try {
-    appendLog('info', 'main', `Install started (platform=${platform}-${arch}, dir=${installDir})`);
-    send('status', { message: 'Fetching version information…' });
-    const versionInfo = await registryLib.getVersionInfo(cdnBase, opts.version);
-    const version = versionInfo.version;
-    const platformKey = `${platform}-${arch}`;
+    appendLog('info', 'main', `Install started (platform=${platform}-${arch})`);
+    send('status', { message: '检查 Node.js、pnpm 与 OpenClaw 环境…' });
+    const environment = await runtimeLib.inspectEnvironment();
 
-    // Check if this platform's package is available before attempting to download.
-    const platformChecksum = versionInfo.checksums && versionInfo.checksums[platformKey];
-    if (platformChecksum === 'sha256:UNAVAILABLE') {
-      throw new Error(
-        `OpenClaw ${version} is not available for ${platformKey}. ` +
-        'The upstream has not published a package for this platform in this release. ' +
-        'Please try again later – the package may be published in a future sync.'
-      );
+    if (!environment.node.installed) {
+      throw new Error('未检测到 Node.js。请先安装 Node.js 18 或更高版本。');
+    }
+    if (!environment.node.supported) {
+      throw new Error(`当前 Node.js 版本为 ${environment.node.version}，需要 18 或更高版本。`);
+    }
+    if (!environment.pnpm.installed) {
+      throw new Error('未检测到 pnpm。请先执行 npm install -g pnpm。');
     }
 
-    // Determine filename
-    let filename;
-    if (versionInfo.files && versionInfo.files[platformKey]) {
-      filename = versionInfo.files[platformKey];
-    } else {
-      filename = platformLib.getPackageFilename(version, platform, arch);
+    send('status', { message: '读取 manifest.json 中的最新版本…' });
+    const latestVersion = await registryLib.getLatestVersion(config.cdnBase);
+
+    if (!opts.force && environment.openclaw.installed) {
+      const comparison = runtimeLib.compareVersions(environment.openclaw.version, latestVersion);
+      if (comparison >= 0) {
+        configLib.updateConfig({ installedVersion: environment.openclaw.version });
+        send('status', { message: `OpenClaw ${environment.openclaw.version} 已是最新版本。` });
+        return {
+          success: true,
+          version: environment.openclaw.version,
+          skipped: true,
+        };
+      }
     }
 
-    const downloadUrl = registryLib.buildDownloadUrl(cdnBase, version, filename);
-    const tmpDir = path.join(os.tmpdir(), 'oclaw-install');
-    const tmpFile = path.join(tmpDir, filename);
-
-    if (!fs.existsSync(tmpDir)) {
-      fs.mkdirSync(tmpDir, { recursive: true });
-    }
-
-    send('status', { message: `Downloading OpenClaw ${version}…` });
-
-    await downloaderLib.downloadFile(downloadUrl, tmpFile, {
-      showProgress: false,
-      onProgress: (received, total) => {
-        send('download-progress', { received, total });
+    send('status', { message: '正在通过 pnpm 安装 OpenClaw…' });
+    await runtimeLib.installOpenclaw({
+      onStdout: (text) => {
+        const message = text.trim();
+        if (message) {
+          send('status', { message });
+        }
+      },
+      onStderr: (text) => {
+        const message = text.trim();
+        if (message) {
+          send('status', { message });
+        }
       },
     });
 
-    // ── Integrity check ───────────────────────────────────────────────────────
-    const checksum = versionInfo.checksums && versionInfo.checksums[platformKey];
-    if (checksum) {
-      send('status', { message: 'Verifying file integrity…' });
-      await downloaderLib.verifyChecksum(tmpFile, checksum);
+    const refreshed = await runtimeLib.inspectEnvironment();
+    if (!refreshed.openclaw.installed || !refreshed.openclaw.version) {
+      throw new Error('pnpm 已执行完成，但当前终端环境仍无法识别 openclaw 命令。请确认 pnpm 全局目录已加入 PATH。');
     }
 
-    send('status', { message: 'Download complete. Installing…' });
-
-    let backupDir = null;
-    if (fs.existsSync(installDir)) {
-      backupDir = installerLib.backupInstallation(installDir);
-    }
-
-    try {
-      installerLib.extract(tmpFile, installDir);
-      installerLib.writeVersionMarker(installDir, version);
-    } catch (err) {
-      if (backupDir) installerLib.restoreBackup(backupDir, installDir);
-      throw err;
-    }
-
-    if (backupDir) {
-      try { installerLib.removeBackup(backupDir); } catch {}
-    }
-    try { fs.unlinkSync(tmpFile); } catch {}
-
-    configLib.updateConfig({ installedVersion: version, installDir });
-    appendLog('info', 'main', `OpenClaw ${version} installed successfully (dir=${installDir})`);
-    send('status', { message: `OpenClaw ${version} installed successfully!` });
-    return { success: true, version };
+    configLib.updateConfig({ installedVersion: refreshed.openclaw.version });
+    appendLog('info', 'main', `OpenClaw ${refreshed.openclaw.version} installed successfully`);
+    send('status', { message: `OpenClaw ${refreshed.openclaw.version} 安装完成。` });
+    return { success: true, version: refreshed.openclaw.version };
   } catch (err) {
     send('status', { message: `Error: ${err.message}` });
     return { success: false, error: err.message };
-  }
-});
-
-/** Update configuration (CDN base URL is fixed and cannot be overridden). */
-ipcMain.handle('set-config', async (_event, updates) => {
-  // Strip cdnBase – the CDN URL is fixed and not user-configurable.
-  const { cdnBase: _cdnBase, ...safeUpdates } = updates || {};
-  configLib.updateConfig(safeUpdates);
-  appendLog('info', 'main', `Configuration updated: ${Object.keys(safeUpdates).join(', ')}`);
-  return { success: true };
-});
-
-/** Open installation directory in file explorer. */
-ipcMain.handle('open-install-dir', async () => {
-  const config = configLib.loadConfig();
-  if (fs.existsSync(config.installDir)) {
-    shell.openPath(config.installDir);
-  } else {
-    dialog.showMessageBox(mainWindow, {
-      type: 'info',
-      title: 'Not Installed',
-      message: 'OpenClaw is not installed yet.',
-    });
   }
 });
 

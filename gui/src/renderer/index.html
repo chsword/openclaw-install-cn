@@ -21,7 +21,7 @@
         </svg>
         <span class="logo-text">OpenClaw</span>
       </div>
-      <span class="header-subtitle">中国大陆离线安装工具</span>
+      <span class="header-subtitle">中国大陆安装助手</span>
     </div>
   </header>
 
@@ -30,7 +30,7 @@
 
     <!-- Status card -->
     <section class="card" id="card-status">
-      <h2 class="card-title">安装状态</h2>
+      <h2 class="card-title">环境与版本</h2>
       <div class="status-grid">
         <div class="status-row">
           <span class="status-label">当前版本</span>
@@ -41,13 +41,24 @@
           <span class="status-value" id="val-latest-version">–</span>
         </div>
         <div class="status-row">
-          <span class="status-label">安装目录</span>
-          <span class="status-value dir-link" id="val-install-dir" title="点击打开目录">–</span>
+          <span class="status-label">Node.js</span>
+          <span class="status-value" id="val-node-version">–</span>
+        </div>
+        <div class="status-row">
+          <span class="status-label">pnpm</span>
+          <span class="status-value" id="val-pnpm-version">–</span>
         </div>
         <div class="status-row">
           <span class="status-label">系统平台</span>
           <span class="status-value" id="val-platform">–</span>
         </div>
+        <div class="status-row">
+          <span class="status-label">安装命令</span>
+          <span class="status-value command-value" id="val-install-command">–</span>
+        </div>
+      </div>
+      <div class="env-hint" id="env-hint">
+        GUI 会先检查 Node.js、pnpm 与当前 OpenClaw 版本，再执行全局安装命令。
       </div>
     </section>
 
@@ -55,7 +66,7 @@
     <section class="actions">
       <button class="btn btn-primary" id="btn-install">安装 / 升级</button>
       <button class="btn btn-secondary" id="btn-check">检查更新</button>
-      <button class="btn btn-ghost" id="btn-settings">⚙ 设置</button>
+      <button class="btn btn-ghost" id="btn-settings">查看日志</button>
     </section>
 
     <!-- Progress area -->
@@ -67,46 +78,26 @@
       <div class="progress-pct" id="progress-pct">0%</div>
     </section>
 
-    <!-- Settings panel -->
+    <!-- Logs panel -->
     <section class="card settings-card" id="card-settings" style="display:none">
-      <!-- Tab bar -->
-      <div class="settings-tabs">
-        <button class="tab-btn active" id="tab-btn-config">设置</button>
-        <button class="tab-btn" id="tab-btn-logs">日志</button>
-      </div>
-
-      <!-- Config tab -->
-      <div class="tab-pane" id="tab-config">
-        <div class="form-row">
-          <label for="inp-dir">安装目录</label>
-          <input type="text" id="inp-dir" placeholder="留空使用默认目录" />
+      <h2 class="card-title">执行日志</h2>
+      <div class="log-toolbar">
+        <div class="log-filters">
+          <label><input type="checkbox" id="filter-info" checked> info</label>
+          <label><input type="checkbox" id="filter-warn" checked> warn</label>
+          <label><input type="checkbox" id="filter-error" checked> error</label>
         </div>
-        <div class="settings-actions">
-          <button class="btn btn-primary" id="btn-save-settings">保存</button>
-          <button class="btn btn-ghost" id="btn-cancel-settings">取消</button>
+        <div class="log-actions">
+          <button class="btn btn-secondary btn-sm" id="btn-refresh-logs">刷新</button>
+          <button class="btn btn-secondary btn-sm" id="btn-export-logs">导出</button>
+          <button class="btn btn-ghost btn-sm" id="btn-clear-logs">清空</button>
         </div>
       </div>
-
-      <!-- Logs tab -->
-      <div class="tab-pane" id="tab-logs" style="display:none">
-        <div class="log-toolbar">
-          <div class="log-filters">
-            <label><input type="checkbox" id="filter-info" checked> info</label>
-            <label><input type="checkbox" id="filter-warn" checked> warn</label>
-            <label><input type="checkbox" id="filter-error" checked> error</label>
-          </div>
-          <div class="log-actions">
-            <button class="btn btn-secondary btn-sm" id="btn-refresh-logs">刷新</button>
-            <button class="btn btn-secondary btn-sm" id="btn-export-logs">导出</button>
-            <button class="btn btn-ghost btn-sm" id="btn-clear-logs">清空</button>
-          </div>
-        </div>
-        <div class="log-viewer" id="log-viewer">
-          <div class="log-empty" id="log-empty">暂无日志</div>
-        </div>
-        <div class="settings-actions">
-          <button class="btn btn-ghost" id="btn-cancel-logs">关闭</button>
-        </div>
+      <div class="log-viewer" id="log-viewer">
+        <div class="log-empty" id="log-empty">暂无日志</div>
+      </div>
+      <div class="settings-actions">
+        <button class="btn btn-ghost" id="btn-cancel-logs">关闭</button>
       </div>
     </section>
 
@@ -117,7 +108,7 @@
 
   <!-- Footer -->
   <footer class="footer">
-    <span>OpenClaw Installer · 仅从 CDN 下载，无需访问 npm / GitHub</span>
+    <span>OpenClaw Installer · 使用 pnpm add -g openclaw@latest --registry=https://registry.npmmirror.com</span>
   </footer>
 
   <script src="app.js"></script>

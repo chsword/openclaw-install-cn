@@ -1,303 +1,148 @@
 # 部署指南 / Deployment Guide
 
-本文档说明如何发布新版本，以及如何将 OpenClaw 安装包分发给用户。
-
----
-
-## 目录
-
-1. [架构概览](#架构概览)
-2. [GitHub Actions 环境配置（COS 凭证）](#github-actions-环境配置cos-凭证)
-3. [发布安装工具新版本（release.yml）](#发布安装工具新版本releaseyml)
-4. [同步上游 OpenClaw 应用版本（sync-openclaw.yml）](#同步上游-openclaw-应用版本sync-openclawml)
-5. [用户安装与更新指南](#用户安装与更新指南)
-6. [CDN 目录结构参考](#cdn-目录结构参考)
-7. [故障排查](#故障排查)
-
----
+本文档说明当前仓库的发布、同步和 CDN 部署模型。
 
 ## 架构概览
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│                           GitHub Actions                              │
-│                                                                      │
-│  Push to main ──► ci.yml                                             │
-│       │  (auto-tag from cli/package.json version)                    │
-│       │                                                              │
-│       ▼                                                              │
-│  Tag Push (v*.*.*)  ──────────────────────────────────► release.yml  │
-│                                │                                     │
-│        ┌───────────────────────┤                                     │
-│        ├── Build CLI binaries (Linux/Windows/macOS/arm64)            │
-│        ├── Build GUI installer (Windows NSIS/Portable, macOS DMG,    │
-│        │              Linux AppImage)                                 │
-│        ├── Publish GitHub Release                                    │
-│        └── Upload cli/{installer-ver}/oclaw-* + cli-manifest ──┐    │
-│            Upload gui/{installer-ver}/openclaw-gui-*  ──────┤    │
-│                                                                  │   │
-│  Daily schedule / workflow_dispatch                              │   │
-│       │                                                          │   │
-│       ▼                                                          │   │
-│  sync-openclaw.yml                                               │   │
-│       │                                                          │   │
-│       ├── Detect latest openclaw/openclaw release                │   │
-│       ├── Download & repackage upstream packages                 │   │
-│       └── Upload pkg/{openclaw-ver}/openclaw-* + manifest ────┐  │   │
-└──────────────────────────────────────────────────────────────│──│───┘
-                                                               │  │
-                                                               ▼  ▼
-                                         ┌─────────────────────────────┐
-                                         │   腾讯云 COS + CDN           │
-                                         │   https://oclaw.chatu.plus  │
-                                         │                             │
-                                         │  manifest.json  ◄── sync    │
-                                         │  cli-manifest.json ◄─ rel.  │
-                                         │  install.sh / install.ps1   │
-                                         │                             │
-                                         │  pkg/{openclaw-ver}/        │
-                                         │    openclaw-*  ◄─── sync    │
-                                         │  cli/{installer-ver}/       │
-                                         │    oclaw-*  ◄──── release   │
-                                         │  gui/{installer-ver}/       │
-                                         │    openclaw-gui-* ◄─ rel.   │
-                                         └────────────┬────────────────┘
-                                                      │
-                                                      ▼ CDN 加速
-                                         ┌─────────────────────────────┐
-                                         │         用户设备             │
-                                         │                             │
-                                         │  oclaw install              │
-                                         │  oclaw upgrade              │
-                                         │  GUI 安装程序               │
-                                         └─────────────────────────────┘
-```
+当前架构已经简化为两条独立链路：
 
-两条独立的版本轨道：
+1. `release.yml` 负责发布安装器自身
+2. `sync-openclaw.yml` 负责更新最新 OpenClaw 版本标记
 
-| CDN 路径 | 版本含义 | 由谁管理 |
-|----------|----------|----------|
-| `cli/{ver}/oclaw-*` | 本安装工具的 Tag 版本（如 `0.2.3`） | `release.yml` |
-| `gui/{ver}/openclaw-gui-*` | 本安装工具的 GUI 离线安装包（如 `0.2.3`） | `release.yml` |
-| `pkg/{ver}/openclaw-*` | 上游 OpenClaw 应用版本（如 `2026.3.8`） | `sync-openclaw.yml` |
+对应职责如下：
 
-开发者只需将更新合并到 `main` 分支，GitHub Actions 会自动从 `cli/package.json` 读取版本号、创建 Tag、构建所有平台安装包并上传到腾讯云 COS，无需手动操作。
+- `release.yml`
+  - 构建并发布 `oclaw` CLI
+  - 构建并发布 GUI 安装程序
+  - 上传 `install.sh`、`install.ps1`
+  - 上传 `cli-manifest.json`
+- `sync-openclaw.yml`
+  - 查询上游 OpenClaw 最新版本
+  - 更新 `cdn-template/manifest.json`
+  - 上传 CDN 根目录的 `manifest.json`
+  - 刷新 `manifest.json` 缓存
 
----
+注意：仓库不再同步、缓存、打包或上传 OpenClaw 离线安装包。
 
-## GitHub Actions 环境配置（COS 凭证）
+## 当前安装模型
 
-Release 工作流的 `deploy-to-cos` 任务使用 GitHub Environments 中的 `TencentSecretId` 环境。
+CLI、GUI 和引导脚本都会先检查：
 
-### 创建 GitHub Environment
+1. Node.js 是否已安装，且版本不低于 18
+2. pnpm 是否已安装
+3. 当前是否已安装 OpenClaw
+4. 当前版本与最新版本是否存在差异
 
-1. 进入仓库 **Settings → Environments → New environment**
-2. 创建名为 `TencentSecretId` 的环境
-3. 在该环境中添加以下 **Secrets**：
-
-   | Secret 名称 | 说明 |
-   |-------------|------|
-   | `SECRETID`  | 腾讯云 API 密钥 SecretId |
-   | `SECRETKEY` | 腾讯云 API 密钥 SecretKey |
-   | `BUCKET`    | COS Bucket 名称（含 AppId，如 `openclaw-1234567890`） |
-   | `REGION`    | COS 地域（如 `ap-guangzhou`） |
-
-4. 可选：设置环境保护规则（如需要审批才能部署）
-
-### 获取腾讯云 API 凭证
-
-1. 登录 [腾讯云 API 密钥管理](https://console.cloud.tencent.com/cam/capi)
-2. 新建 API 密钥，记录 SecretId 和 SecretKey
-3. **建议使用子账号，并只授予以下最小权限：**
-   - `QcloudCOSDataWrite`（COS 数据写入）
-   - `QcloudCOSDataRead`（COS 数据读取）
-
----
-
-## 发布安装工具新版本（release.yml）
-
-### 自动发布流程
-
-发布新版本只需更新版本号并推送到 `main` 分支，CI 会自动完成全部后续工作：
-
-1. 修改 `cli/package.json` 中的 `version` 字段：
-
-   ```bash
-   cd cli
-   npm version patch   # 或 minor / major / 任意版本号
-   # 这会自动更新 package.json，无需手动推送 Tag
-   ```
-
-2. 将变更合并（或直接推送）到 `main` 分支：
-
-   ```bash
-   git add cli/package.json
-   git commit -m "chore: bump version to x.y.z"
-   git push origin main
-   ```
-
-3. `ci.yml` 工作流会自动：
-   - 运行所有测试和 lint
-   - 读取 `cli/package.json` 中的版本号，创建对应的版本 Tag（如 `vX.Y.Z`）
-   - 通过 `workflow_dispatch` 触发 `release.yml` 工作流
-
-4. `release.yml` 工作流会自动：
-   - 为 Windows / macOS (x64 + arm64) / Linux 构建 CLI 二进制文件
-   - 构建 GUI 安装包（Windows NSIS + 便携版，macOS DMG，Linux AppImage）
-   - 更新 `cli-manifest.json` 中的版本清单及校验和（**不修改** `manifest.json`，后者由 `sync-openclaw.yml` 管理）
-   - 创建 GitHub Release，上传所有构建产物
-   - 将 CLI 安装包上传到 `cli/{installer-ver}/` 目录（腾讯云 COS，`TencentSecretId` 环境）
-   - 将 GUI 离线安装包（`.exe` / `.dmg` / `.AppImage`）上传到 `gui/{installer-ver}/` 目录（腾讯云 COS）
-   - 自动刷新 CDN 缓存（`cli-manifest.json`、安装脚本、本次发布的 CLI 包及 GUI 离线包）
-
-5. 在 [GitHub Releases 页面](https://github.com/chsword/openclaw-install-cn/releases) 确认发布成功。
-
-> **注意**：如果 Tag 已存在，`ci.yml` 的自动打标步骤会跳过，`release.yml` 不会被重复触发。
-
-### 手动触发发布
-
-如需手动创建 Tag 并触发 Release（不经过 `ci.yml` 自动打标），可直接推送符合格式的 Tag：
+实际安装与升级统一通过以下命令完成：
 
 ```bash
-git checkout main
-git pull origin main
-
-# Tag 格式必须为 v{数字}.{数字}.{数字}，否则不会触发 release.yml
-git tag v1.2.3
-git push origin v1.2.3
+pnpm add -g openclaw@latest --registry=https://registry.npmmirror.com
 ```
 
-### 发布预发布版（Pre-release）
+`manifest.json` 只用于标记当前最新的 OpenClaw 版本，不再承载平台包列表和校验和。
 
-> **注意**：`release.yml` 的 Tag 触发器仅匹配 `v[0-9]+.[0-9]+.[0-9]+` 格式（不含连字符）。
-> 含连字符的 Tag（如 `v1.2.3-beta.1`）**不会**通过 Tag push 触发工作流。
+## GitHub Actions 环境配置
 
-如需发布 Pre-release，请在 GitHub Actions 页面手动触发 `release.yml`（`workflow_dispatch`），
-或在 `cli/package.json` 中将 `version` 设为带连字符的预发布版本号（如 `1.2.3-beta.1`）后推送到 `main`，
-CI 将读取该版本号、创建 `v1.2.3-beta.1` Tag，并通过 `workflow_dispatch` 触发 Release 工作流（此时 `contains(github.ref_name, '-')` 为 `true`，GitHub Release 会自动标记为 Pre-release）。
+如果需要将文件上传到腾讯云 COS，请在 GitHub Environments 中配置 `TencentSecretId` 环境，并提供：
 
----
+- `SECRETID`
+- `SECRETKEY`
+- `BUCKET`
+- `REGION`
 
-## 同步上游 OpenClaw 应用版本（sync-openclaw.yml）
+建议只授予最小的 COS 读写权限。
 
-`manifest.json`（`oclaw install` / `oclaw upgrade` 用于定位安装包的清单）和 CDN 上的 `pkg/{openclaw-ver}/openclaw-*` 包**不由 `release.yml` 管理**，而是由独立的 `sync-openclaw.yml` 工作流负责。
+## 发布安装器版本
 
-### 触发方式
+推荐流程：
 
-| 方式 | 说明 |
-|------|------|
-| **每日自动检测**（04:00 UTC） | 自动调用 `openclaw/openclaw` 的 GitHub Releases API；若检测到新版本则同步，否则静默退出 |
-| **手动触发**（`workflow_dispatch`） | 在 Actions 页面手动运行，可指定具体版本号（如 `2026.3.8`）或留空自动检测最新版 |
+1. 更新 [cli/package.json](../cli/package.json) 中的版本号
+2. 推送到 `main`
+3. 等待 `ci.yml` 自动打标签
+4. 等待 `release.yml` 构建和发布
 
-### 工作流程
+`release.yml` 会：
 
-1. 从 `openclaw/openclaw` GitHub Releases API 获取最新版本（或使用手动指定版本）
-2. 对比 `cdn-template/manifest.json`；若版本已存在则跳过
-3. 下载该 Release 中所有平台的安装包（支持多种文件名模式，缺失平台静默跳过）
-4. 将下载的包重新打包为 CDN 规范格式（`openclaw-{ver}-{platform}.{ext}`）
-5. 计算 SHA-256 校验和，更新 `cdn-template/manifest.json`
-6. 上传至腾讯云 COS 的 `pkg/{openclaw-ver}/` 目录
-7. 刷新 CDN 缓存（`manifest.json` + 本次上传的包 URL）
-8. 将更新后的 `cdn-template/manifest.json` 提交回 `main` 分支
+- 构建 Windows、macOS、Linux CLI 二进制
+- 构建 GUI 安装包
+- 更新 `cdn-template/cli-manifest.json`
+- 创建 GitHub Release
+- 上传 CLI、GUI、引导脚本和 `cli-manifest.json` 到 COS/CDN
 
-### 手动触发指定版本
+## 同步 OpenClaw 最新版本
 
-在 [Actions → Sync OpenClaw Upstream Release → Run workflow](https://github.com/chsword/openclaw-install-cn/actions/workflows/sync-openclaw.yml) 中：
+`sync-openclaw.yml` 只做一件事：让 CDN 上的 `manifest.json` 始终反映 OpenClaw 最新版本。
 
-- **version** 留空 → 自动拉取 `openclaw/openclaw` 最新 Release
-- **version** 填写 `2026.3.8`（或 `v2026.3.8`）→ 同步指定版本
+当前工作流步骤：
 
----
+1. 从上游 Release API 读取最新版本，或使用手动输入版本
+2. 对比 `cdn-template/manifest.json` 中的 `latest`
+3. 写回新的 `latest`、`releaseDate` 和 `description`
+4. 上传 `manifest.json` 到 COS/CDN
+5. 刷新该文件的 CDN 缓存
 
-## 用户安装与更新指南
+## CDN 目录结构
 
-### 首次安装
+当前 CDN 根目录建议结构如下：
 
-**macOS / Linux（一键安装）：**
+```text
+(CDN Root)/
+├── manifest.json
+├── cli-manifest.json
+├── install.sh
+├── install.ps1
+├── cli/
+│   └── {version}/
+│       └── oclaw-*
+└── gui/
+    └── {version}/
+        └── openclaw-gui-*
+```
+
+不再使用 `pkg/{version}/openclaw-*` 目录。
+
+## 用户侧流程
+
+用户可以通过以下方式安装：
+
 ```bash
 curl -fsSL https://oclaw.chatu.plus/install.sh | bash
 ```
 
-**Windows（PowerShell 一键安装）：**
+或在 Windows PowerShell 中：
+
 ```powershell
 irm https://oclaw.chatu.plus/install.ps1 | iex
 ```
 
-**Windows（GUI 安装程序）：**
-从 GitHub Release 页面下载 `openclaw-gui-setup-*.exe`，双击运行即可。
-
-### 升级
-
-```bash
-# 检查更新（不执行）
-oclaw upgrade --check
-
-# 升级到最新版
-oclaw upgrade
-```
-
-### 查看状态
-
-```bash
-oclaw status --check-updates
-```
-
----
-
-## CDN 目录结构参考
-
-```
-(CDN Root)/
-│
-├── manifest.json               # OpenClaw 包版本清单（需频繁刷新缓存）
-├── cli-manifest.json           # oclaw CLI 版本清单（需频繁刷新缓存）
-│
-├── install.sh                  # macOS / Linux 引导脚本
-├── install.ps1                 # Windows PowerShell 引导脚本
-│
-│── pkg/                        # OpenClaw 应用包目录（上游版本，由 sync-openclaw.yml 管理）
-│   ├── 1.0.0/                  # OpenClaw v1.0.0 安装包
-│   │   ├── openclaw-1.0.0-win32-x64.zip
-│   │   ├── openclaw-1.0.0-darwin-x64.tar.gz
-│   │   ├── openclaw-1.0.0-darwin-arm64.tar.gz
-│   │   └── openclaw-1.0.0-linux-x64.tar.gz
-│   └── ...
-│
-├── cli/                        # oclaw CLI 二进制包目录
-│   ├── 1.0.0/
-│   │   ├── oclaw-1.0.0-win32-x64.zip
-│   │   ├── oclaw-1.0.0-darwin-x64.tar.gz
-│   │   ├── oclaw-1.0.0-darwin-arm64.tar.gz
-│   │   └── oclaw-1.0.0-linux-x64.tar.gz
-│   └── ...
-│
-└── gui/                        # GUI 离线安装包目录
-    ├── 1.0.0/
-    │   ├── openclaw-gui-setup-1.0.0-x64.exe      # Windows NSIS 安装向导
-   │   ├── openclaw-gui-1.0.0-win32-x64.exe       # Windows 便携版
-   │   ├── openclaw-gui-1.0.0-darwin-x64.dmg      # macOS Intel 磁盘映像
-   │   ├── openclaw-gui-1.0.0-darwin-arm64.dmg    # macOS Apple Silicon 磁盘映像
-   │   └── openclaw-gui-1.0.0-linux-x86_64.AppImage # Linux AppImage
-    └── ...
-```
-
----
+CLI 和 GUI 都会在安装前检查环境，并通过 pnpm 完成真正的安装或升级。
 
 ## 故障排查
 
-### 用户报告 "无法连接 CDN"
+### 无法检查最新版本
 
-确认 CDN 域名能在目标网络环境中访问：
+确认 CDN 上的 `manifest.json` 可访问：
+
 ```bash
 curl -I https://oclaw.chatu.plus/manifest.json
 ```
 
-如仍无法访问，请检查腾讯云 CDN 控制台中的域名状态及访问日志。
+### 无法安装或升级 OpenClaw
 
-### `oclaw install` 提示 "版本未找到"
+优先检查：
 
-1. 确认 CDN 上的 `manifest.json` 已更新（`sync-openclaw.yml` 每日自动同步；也可手动触发）：
-   ```bash
+1. `node --version`
+2. `pnpm --version`
+3. `openclaw --version`
+4. 是否能访问 `https://registry.npmmirror.com`
+
+### Release 发布后 CDN 内容未更新
+
+检查：
+
+1. `release.yml` 的 `deploy-to-cos` 是否成功
+2. `sync-openclaw.yml` 是否已更新 `manifest.json`
+3. CDN 刷新任务是否成功执行
    curl https://oclaw.chatu.plus/manifest.json
    ```
 2. 确认 `versions` 数组中包含对应版本

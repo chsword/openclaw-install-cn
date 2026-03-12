@@ -8,30 +8,18 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('oclaw', {
-  /** @returns {Promise<{installed, installedVersion, installDir, cdnBase, platform, arch}>} */
+  /** @returns {Promise<{installed, installedVersion, cdnBase, npmRegistry, platform, arch, node, pnpm, installCommand}>} */
   getStatus: () => ipcRenderer.invoke('get-status'),
 
   /** @returns {Promise<{success, latest?, error?}>} */
   checkLatest: () => ipcRenderer.invoke('check-latest'),
 
-  /** @returns {Promise<{success, manifest?, error?}>} */
-  getManifest: () => ipcRenderer.invoke('get-manifest'),
-
   /**
-   * Install or upgrade OpenClaw.
-   * @param {Object} [opts] - { version?, dir? }
+   * Install or upgrade OpenClaw via pnpm.
+   * @param {Object} [opts] - { force? }
    * @returns {Promise<{success, version?, error?}>}
    */
   install: (opts) => ipcRenderer.invoke('install', opts),
-
-  /**
-   * Update configuration.
-   * @param {Object} updates - { cdnBase?, installDir? }
-   */
-  setConfig: (updates) => ipcRenderer.invoke('set-config', updates),
-
-  /** Open the installation directory in the OS file manager. */
-  openInstallDir: () => ipcRenderer.invoke('open-install-dir'),
 
   /**
    * Listen for install progress events.
