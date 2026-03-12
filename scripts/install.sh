@@ -3,8 +3,11 @@
 set -euo pipefail
 
 NODE_MIRROR="${NODE_MIRROR:-https://nodejs.org/dist}"
+NVM_MIRROR="${NVM_MIRROR:-https://github.com/nvm-sh/nvm}"
+NODE_VERSION="${NODE_VERSION:-lts/*}"
 INSTALL_COMMAND='pnpm add -g openclaw@latest --registry=https://registry.npmmirror.com'
 LOG_FILE="${OCLAW_LOG_FILE:-$(mktemp /tmp/openclaw-install-XXXXXXXXXX.log 2>/dev/null || echo "/tmp/openclaw-install-$$.log") }"
+AUTO_INSTALL=false
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -27,9 +30,73 @@ parse_version() {
   echo "$output" | grep -oE 'v?[0-9]+(\.[0-9]+)+' | head -1 | sed 's/^v//'
 }
 
+install_node_via_nvm() {
+  info '正在通过 nvm 安装 Node.js...'
+
+  local nvm_dir="${NVM_DIR:-$HOME/.nvm}"
+  local nvm_install_url
+
+  # Use NVM_MIRROR if set to a non-empty, non-default value, otherwise use the raw install script
+  if [ -n "${NVM_MIRROR}" ] && [ "${NVM_MIRROR}" != 'https://github.com/nvm-sh/nvm' ]; then
+    nvm_install_url="${NVM_MIRROR}/install.sh"
+  else
+    nvm_install_url='https://raw.githubusercontent.com/nvm-sh/nvm/HEAD/install.sh'
+  fi
+
+  info "下载 nvm 安装脚本：$nvm_install_url"
+  if command -v curl >/dev/null 2>&1; then
+    NVM_DIR="$nvm_dir" NODEJS_ORG_MIRROR="$NODE_MIRROR" \
+      curl -fsSL "$nvm_install_url" | bash \
+      || die 'nvm 安装失败。请手动安装 Node.js：'"$NODE_MIRROR"
+  elif command -v wget >/dev/null 2>&1; then
+    NVM_DIR="$nvm_dir" NODEJS_ORG_MIRROR="$NODE_MIRROR" \
+      wget -qO- "$nvm_install_url" | bash \
+      || die 'nvm 安装失败。请手动安装 Node.js：'"$NODE_MIRROR"
+  else
+    die '未找到 curl 或 wget，无法自动安装 Node.js。请手动安装后重试。'
+  fi
+
+  # Source nvm into the current shell
+  # shellcheck source=/dev/null
+  [ -s "$nvm_dir/nvm.sh" ] && \. "$nvm_dir/nvm.sh"
+
+  if ! type nvm >/dev/null 2>&1; then
+    die 'nvm 安装完成，但当前 shell 无法加载 nvm。请重新打开终端后重试。'
+  fi
+
+  info "正在安装 Node.js（$NODE_VERSION）..."
+  NODEJS_ORG_MIRROR="$NODE_MIRROR" nvm install "$NODE_VERSION" \
+    || die "Node.js 安装失败。请访问 $NODE_MIRROR 手动安装。"
+
+  nvm use "$NODE_VERSION" 2>/dev/null || true
+
+  local node_ver
+  node_ver=$(parse_version node --version) || die 'Node.js 安装后仍无法获取版本信息。'
+  success "Node.js $node_ver 已通过 nvm 安装成功。"
+}
+
 check_node() {
   if ! command -v node >/dev/null 2>&1; then
-    die "未检测到 Node.js。请先安装 Node.js 18 或更高版本。推荐镜像：$NODE_MIRROR"
+    warn "未检测到 Node.js。"
+
+    local do_install=false
+    if [ "$AUTO_INSTALL" = true ]; then
+      do_install=true
+    elif [ -t 0 ]; then
+      printf "${CYAN}ℹ${NC}  是否自动安装 Node.js（通过 nvm）？[Y/n] "
+      local answer
+      read -r answer
+      case "$answer" in
+        ''|[Yy]*) do_install=true ;;
+        *) die "请先手动安装 Node.js 18 或更高版本后再重试。推荐镜像：$NODE_MIRROR" ;;
+      esac
+    else
+      die "未检测到 Node.js。请先安装 Node.js 18 或更高版本，或使用 -y 参数启用自动安装。推荐镜像：$NODE_MIRROR"
+    fi
+
+    if [ "$do_install" = true ]; then
+      install_node_via_nvm
+    fi
   fi
 
   local node_ver
@@ -88,6 +155,13 @@ install_openclaw() {
 }
 
 main() {
+  # Parse flags
+  for arg in "$@"; do
+    case "$arg" in
+      -y|--auto-install) AUTO_INSTALL=true ;;
+    esac
+  done
+
   : > "$LOG_FILE" 2>/dev/null || true
   info '开始检查安装环境...'
   check_node
