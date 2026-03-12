@@ -238,15 +238,43 @@ jobs:
             echo "  Normalized: $(basename "$f") → ${CANON_LX_TGZ}"
             break
           done
-          # Linux .deb package: wrap in tar.gz so CDN format is consistent
+          # Linux tar.gz catch-all: matches OpenClaw-{V}-{prerelease}.tar.gz (no platform token).
+          # Electron-builder sometimes omits the platform from the filename.
+          # A .tar.gz is never macOS (macOS uses .dmg/.zip), so any unmatched .tar.gz is Linux.
+          for f in upstream-assets/OpenClaw-${V}*.tar.gz; do
+            [ -f "$f" ] || continue
+            CANON_LX_TGZ="openclaw-${V}-linux-x64.tar.gz"
+            [ -f "upstream-assets/${CANON_LX_TGZ}" ] && break  # already normalized above
+            cp "$f" "upstream-assets/${CANON_LX_TGZ}"
+            echo "  Normalized (tar.gz catch-all): $(basename "$f") → ${CANON_LX_TGZ}"
+            break
+          done
+          # Linux .deb package: wrap in tar.gz so CDN format is consistent.
+          # Handles both uppercase (OpenClaw-{V}*.deb) and Electron-builder lowercase
+          # naming (openclaw[-_]{V}*.deb, e.g. openclaw_2026.3.8-beta.1_amd64.deb).
           for f in upstream-assets/OpenClaw-${V}*[Ll]inux*.deb \
                    upstream-assets/OpenClaw-${V}*amd64*.deb \
-                   upstream-assets/OpenClaw-${V}*.deb; do
+                   upstream-assets/OpenClaw-${V}*.deb \
+                   upstream-assets/openclaw[-_]${V}*.deb \
+                   upstream-assets/openclaw[-_]*amd64*.deb; do
             [ -f "$f" ] || continue
             CANON_LX_TGZ="openclaw-${V}-linux-x64.tar.gz"
             [ -f "upstream-assets/${CANON_LX_TGZ}" ] && break  # already normalized
             tar -czf "upstream-assets/${CANON_LX_TGZ}" -C upstream-assets "$(basename "$f")"
             echo "  Normalized (deb→tar.gz): $(basename "$f") → ${CANON_LX_TGZ}"
+            break
+          done
+          # Linux .rpm package: wrap in tar.gz so CDN format is consistent.
+          # Handles both uppercase (OpenClaw-{V}*.rpm) and lowercase (openclaw[-_]{V}*.rpm).
+          for f in upstream-assets/OpenClaw-${V}*.rpm \
+                   upstream-assets/openclaw[-_]${V}*.rpm \
+                   upstream-assets/openclaw[-_]*x86_64*.rpm \
+                   upstream-assets/openclaw[-_]*amd64*.rpm; do
+            [ -f "$f" ] || continue
+            CANON_LX_TGZ="openclaw-${V}-linux-x64.tar.gz"
+            [ -f "upstream-assets/${CANON_LX_TGZ}" ] && break  # already normalized
+            tar -czf "upstream-assets/${CANON_LX_TGZ}" -C upstream-assets "$(basename "$f")"
+            echo "  Normalized (rpm→tar.gz): $(basename "$f") → ${CANON_LX_TGZ}"
             break
           done
 
