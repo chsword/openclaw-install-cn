@@ -84,11 +84,11 @@ jobs:
               except subprocess.CalledProcessError:
                   pass
 
-                for path_str, field in [
-                    ('cli/package.json', 'version'),
-                    ('gui/package.json', 'version'),
-                    ('cdn-template/cli-manifest.json', 'latest'),
-                  ]:
+              for path_str, field in [
+                  ('cli/package.json', 'version'),
+                  ('gui/package.json', 'version'),
+                  ('cdn-template/cli-manifest.json', 'latest'),
+              ]:
                   path = Path(path_str)
                   if not path.exists():
                       continue
