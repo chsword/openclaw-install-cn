@@ -13,6 +13,26 @@ const {
   getWindowsShimCandidatePaths,
 } = require('../lib/runtime');
 
+function withWindowsLikeEnv(fn) {
+  const previous = {
+    APPDATA: process.env.APPDATA,
+    LOCALAPPDATA: process.env.LOCALAPPDATA,
+    USERPROFILE: process.env.USERPROFILE,
+  };
+
+  process.env.APPDATA = 'C:\\Users\\runner\\AppData\\Roaming';
+  process.env.LOCALAPPDATA = 'C:\\Users\\runner\\AppData\\Local';
+  process.env.USERPROFILE = 'C:\\Users\\runner';
+
+  try {
+    fn();
+  } finally {
+    if (previous.APPDATA === undefined) delete process.env.APPDATA; else process.env.APPDATA = previous.APPDATA;
+    if (previous.LOCALAPPDATA === undefined) delete process.env.LOCALAPPDATA; else process.env.LOCALAPPDATA = previous.LOCALAPPDATA;
+    if (previous.USERPROFILE === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = previous.USERPROFILE;
+  }
+}
+
 describe('runtime', () => {
   test('parseVersion extracts semver from complex output', () => {
     const out = 'OpenClaw CLI version v1.23.4 (build abc)';
@@ -66,8 +86,10 @@ describe('runtime', () => {
   });
 
   test('getWindowsShimCandidatePaths includes common shim directories', () => {
-    const candidates = getWindowsShimCandidatePaths('pnpm');
-    assert.ok(candidates.some((item) => item.endsWith('pnpm.cmd')));
-    assert.ok(candidates.some((item) => item.includes('npm')) || candidates.some((item) => item.includes('pnpm')));
+    withWindowsLikeEnv(() => {
+      const candidates = getWindowsShimCandidatePaths('pnpm');
+      assert.ok(candidates.some((item) => item.endsWith('pnpm.cmd')));
+      assert.ok(candidates.some((item) => item.includes('npm')) || candidates.some((item) => item.includes('pnpm')));
+    });
   });
 });
