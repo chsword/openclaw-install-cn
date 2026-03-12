@@ -1,6 +1,6 @@
 {
   "name": "openclaw-install-cn",
-  "version": "1.0.22",
+  "version": "1.0.23",
   "description": "OpenClaw assistant and updater for China mainland / restricted networks - installs via pnpm and npmmirror",
   "main": "src/index.js",
   "bin": {
