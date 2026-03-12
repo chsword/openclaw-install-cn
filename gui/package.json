@@ -1,6 +1,6 @@
 {
   "name": "openclaw-gui",
-  "version": "1.0.3",
+  "version": "1.0.20",
   "description": "OpenClaw cross-platform GUI installer/updater",
   "repository": {
     "type": "git",
@@ -42,11 +42,15 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "portable",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ]
     },
@@ -54,13 +58,24 @@
       "icon": "assets/icon.icns",
       "category": "public.app-category.utilities",
       "target": [
-        { "target": "dmg", "arch": ["x64", "arm64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
       ]
     },
     "linux": {
       "icon": "assets/icon.png",
       "target": [
-        { "target": "AppImage", "arch": ["x64"] }
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
       ]
     },
     "nsis": {
@@ -81,4 +96,3 @@
     ]
   }
 }
-

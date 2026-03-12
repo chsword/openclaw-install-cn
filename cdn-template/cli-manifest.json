@@ -1,20 +1,36 @@
 {
-  "latest": "1.0.0",
+  "latest": "1.0.20",
   "versions": [
+    {
+      "version": "1.0.20",
+      "releaseDate": "2026-03-12",
+      "files": {
+        "win32-x64": "oclaw-1.0.20-win32-x64.zip",
+        "darwin-x64": "oclaw-1.0.20-darwin-x64.tar.gz",
+        "darwin-arm64": "oclaw-1.0.20-darwin-arm64.tar.gz",
+        "linux-x64": "oclaw-1.0.20-linux-x64.tar.gz"
+      },
+      "checksums": {
+        "win32-x64": "sha256:42b368fe873777b7bb09d87edf31ca7e421293ac58869c72f3ed9fa5e5838b39",
+        "darwin-x64": "sha256:93a0d2cb99240f78bf3158038cdd3fa04f1b0ed5d0989e5ee2cff57ae8d74af6",
+        "darwin-arm64": "sha256:6b3e795dd550de6e4817af0621a161608660ed87161fc9ece49e7d18f8e97468",
+        "linux-x64": "sha256:527c425aea1323d91ec4f6c2015ed363470940889861ed2738a45985089fdbb0"
+      }
+    },
     {
       "version": "1.0.0",
       "releaseDate": "2025-01-01",
       "files": {
-        "win32-x64":   "oclaw-1.0.0-win32-x64.zip",
-        "darwin-x64":  "oclaw-1.0.0-darwin-x64.tar.gz",
-        "darwin-arm64":"oclaw-1.0.0-darwin-arm64.tar.gz",
-        "linux-x64":   "oclaw-1.0.0-linux-x64.tar.gz"
+        "win32-x64": "oclaw-1.0.0-win32-x64.zip",
+        "darwin-x64": "oclaw-1.0.0-darwin-x64.tar.gz",
+        "darwin-arm64": "oclaw-1.0.0-darwin-arm64.tar.gz",
+        "linux-x64": "oclaw-1.0.0-linux-x64.tar.gz"
       },
       "checksums": {
-        "win32-x64":   "sha256:REPLACE_WITH_ACTUAL_CHECKSUM",
-        "darwin-x64":  "sha256:REPLACE_WITH_ACTUAL_CHECKSUM",
-        "darwin-arm64":"sha256:REPLACE_WITH_ACTUAL_CHECKSUM",
-        "linux-x64":   "sha256:REPLACE_WITH_ACTUAL_CHECKSUM"
+        "win32-x64": "sha256:REPLACE_WITH_ACTUAL_CHECKSUM",
+        "darwin-x64": "sha256:REPLACE_WITH_ACTUAL_CHECKSUM",
+        "darwin-arm64": "sha256:REPLACE_WITH_ACTUAL_CHECKSUM",
+        "linux-x64": "sha256:REPLACE_WITH_ACTUAL_CHECKSUM"
       }
     }
   ]
