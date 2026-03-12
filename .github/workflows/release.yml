@@ -307,6 +307,27 @@ jobs:
           npm version "${{ steps.ver.outputs.version }}" --no-git-tag-version --allow-same-version
         continue-on-error: true
 
+      - name: Update Tauri config and Cargo version
+        shell: bash
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          # Update tauri.conf.json version so the built binary reports the correct version
+          # (used by tauri-plugin-updater for current_version comparison)
+          python3 -c "
+          import json
+          with open('gui/src-tauri/tauri.conf.json', 'r') as f:
+              cfg = json.load(f)
+          cfg['version'] = '$VERSION'
+          with open('gui/src-tauri/tauri.conf.json', 'w') as f:
+              json.dump(cfg, f, indent=2)
+              f.write('\n')
+          print('Updated tauri.conf.json version to', '$VERSION')
+          "
+          # Update Cargo.toml version for consistency
+          sed -i.bak "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" gui/src-tauri/Cargo.toml && rm -f gui/src-tauri/Cargo.toml.bak
+          echo "Updated Cargo.toml version to $VERSION"
+        continue-on-error: true
+
       - name: Generate placeholder icons
         run: node scripts/gen-icons.js
 
@@ -316,7 +337,24 @@ jobs:
         working-directory: gui
 
       - name: Build GUI
-        run: npm run ${{ matrix.build_cmd }}
+        shell: bash
+        run: |
+          # When TAURI_SIGNING_PRIVATE_KEY is absent or empty, Tauri errors trying to
+          # decode the key even if createUpdaterArtifacts is true.  Disable updater
+          # artifact generation for unsigned builds so the step does not fail before
+          # the signing key has been configured in GitHub Secrets.
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY is not set – building without updater artifact signing"
+            node -e "
+              const fs=require('fs');
+              const p='src-tauri/tauri.conf.json';
+              const c=JSON.parse(fs.readFileSync(p,'utf8'));
+              c.bundle.createUpdaterArtifacts=false;
+              fs.writeFileSync(p,JSON.stringify(c,null,2)+'\n');
+              console.log('Disabled createUpdaterArtifacts for unsigned build');
+            "
+          fi
+          npm run ${{ matrix.build_cmd }}
         working-directory: gui
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -775,12 +813,14 @@ jobs:
           done
 
           # Upload GUI updater archives to gui/{VERSION}/ on COS (signed update packages).
-          for pattern in "*.nsis.zip" "*.app.tar.gz" "*.AppImage.tar.gz"; do
-            find artifacts/gui/updater/ -name "$pattern" 2>/dev/null | while read -r f; do
-              fname="$(basename "$f")"
-              cos_upload_if_new "$f" "gui/${VERSION}/${fname}"
+          if [ -d artifacts/gui/updater/ ]; then
+            for pattern in "*.nsis.zip" "*.app.tar.gz" "*.AppImage.tar.gz"; do
+              find artifacts/gui/updater/ -name "$pattern" 2>/dev/null | while read -r f; do
+                fname="$(basename "$f")"
+                cos_upload_if_new "$f" "gui/${VERSION}/${fname}"
+              done
             done
-          done
+          fi
 
           # Upload install scripts and CLI manifest (always overwrite – these are not versioned).
           # manifest.json is managed by sync-openclaw.yml as the latest OpenClaw version marker.

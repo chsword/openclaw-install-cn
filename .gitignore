@@ -15,6 +15,9 @@ build/
 # Build cache
 gui/src/renderer/.cache/
 
+# Tauri generated schemas (IDE-only; regenerated at build time)
+gui/src-tauri/gen/
+
 # OS files
 .DS_Store
 Thumbs.db
