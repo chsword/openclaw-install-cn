@@ -61,6 +61,35 @@ function setValue(el, text, className = '') {
   el.className = `status-value ${className}`.trim();
 }
 
+function describeBinarySource(binary) {
+  if (!binary || !binary.installed) {
+    return '';
+  }
+
+  if (binary.source === 'windows-fallback') {
+    return binary.path ? `Windows 回退路径 · ${binary.path}` : 'Windows 回退路径';
+  }
+
+  if (binary.source === 'pnpm-global-list') {
+    return 'pnpm 全局列表';
+  }
+
+  if (binary.path) {
+    return `PATH · ${binary.path}`;
+  }
+
+  return 'PATH';
+}
+
+function formatBinaryValue(binary, fallbackText = '未安装') {
+  if (!binary || !binary.installed) {
+    return fallbackText;
+  }
+
+  const sourceText = describeBinarySource(binary);
+  return sourceText ? `${binary.version} · ${sourceText}` : binary.version;
+}
+
 function fmtBytes(bytes) {
   if (bytes === 0) return '0 B';
   const k = 1024;
@@ -77,19 +106,19 @@ async function loadStatus() {
     elPlatform.textContent = `${currentStatus.platform} (${currentStatus.arch})`;
 
     if (currentStatus.node.installed) {
-      setValue(elNodeVersion, currentStatus.node.version, currentStatus.node.supported ? 'ready' : 'update-available');
+      setValue(elNodeVersion, formatBinaryValue(currentStatus.node), currentStatus.node.supported ? 'ready' : 'update-available');
     } else {
       setValue(elNodeVersion, '未安装', 'missing');
     }
 
     if (currentStatus.pnpm.installed) {
-      setValue(elPnpmVersion, currentStatus.pnpm.version, 'ready');
+      setValue(elPnpmVersion, formatBinaryValue(currentStatus.pnpm), 'ready');
     } else {
       setValue(elPnpmVersion, '未安装', 'missing');
     }
 
-    if (currentStatus.installed && currentStatus.installedVersion) {
-      setValue(elInstalledVersion, currentStatus.installedVersion, 'installed');
+    if (currentStatus.installed && currentStatus.openclaw && currentStatus.openclaw.installed) {
+      setValue(elInstalledVersion, formatBinaryValue(currentStatus.openclaw, currentStatus.installedVersion), 'installed');
       btnInstall.textContent = '升级';
     } else {
       setValue(elInstalledVersion, '未安装', 'not-installed');

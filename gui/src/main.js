@@ -166,6 +166,7 @@ ipcMain.handle('get-status', async () => {
   return {
     installed: environment.openclaw.installed,
     installedVersion: environment.openclaw.version || config.installedVersion,
+    openclaw: environment.openclaw,
     cdnBase: config.cdnBase,
     npmRegistry: config.npmRegistry,
     platform: platformLib.getPlatformLabel(),

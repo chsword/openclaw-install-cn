@@ -8,6 +8,9 @@ const {
   parseOpenclawVersionFromPnpmList,
   getInstallCommandString,
   PNPM_REGISTRY,
+  getExecutableCandidates,
+  getWindowsNodeCandidatePaths,
+  getWindowsShimCandidatePaths,
 } = require('../lib/runtime');
 
 describe('runtime', () => {
@@ -43,5 +46,28 @@ describe('runtime', () => {
   test('getInstallCommandString uses npmmirror registry', () => {
     const command = getInstallCommandString();
     assert.ok(command.includes(`--registry=${PNPM_REGISTRY}`));
+  });
+
+  test('getExecutableCandidates prefers node.exe on Windows', () => {
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    try {
+      assert.deepEqual(getExecutableCandidates('node'), ['node.exe', 'node']);
+      assert.deepEqual(getExecutableCandidates('pnpm'), ['pnpm.cmd', 'pnpm.exe', 'pnpm']);
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform });
+    }
+  });
+
+  test('getWindowsNodeCandidatePaths includes common install locations', () => {
+    const candidates = getWindowsNodeCandidatePaths();
+    assert.ok(candidates.includes('C:\\Program Files\\nodejs\\node.exe'));
+    assert.ok(candidates.includes('C:\\Program Files (x86)\\nodejs\\node.exe'));
+  });
+
+  test('getWindowsShimCandidatePaths includes common shim directories', () => {
+    const candidates = getWindowsShimCandidatePaths('pnpm');
+    assert.ok(candidates.some((item) => item.endsWith('pnpm.cmd')));
+    assert.ok(candidates.some((item) => item.includes('npm')) || candidates.some((item) => item.includes('pnpm')));
   });
 });

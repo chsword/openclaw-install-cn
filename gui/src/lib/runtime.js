@@ -1,25 +1,48 @@
 'use strict';
 
 const { spawn } = require('child_process');
+const fs = require('fs');
+const path = require('path');
 
 const PNPM_REGISTRY = 'https://registry.npmmirror.com';
 const OPENCLAW_PACKAGE_SPEC = 'openclaw@latest';
 const NODEJS_DOWNLOAD_URL = 'https://nodejs.org/zh-cn/download';
 
-function getExecutableName(command) {
+function getExecutableCandidates(command) {
   if (process.platform !== 'win32') {
-    return command;
+    return [command];
   }
+
   if (command.endsWith('.cmd') || command.endsWith('.exe')) {
-    return command;
+    return [command];
   }
-  return `${command}.cmd`;
+
+  if (command === 'node' || command === 'winget') {
+    return [`${command}.exe`, command];
+  }
+
+  return [`${command}.cmd`, `${command}.exe`, command];
 }
 
-function runCommand(command, args = [], options = {}) {
+function quoteForCmd(value) {
+  return `"${String(value).replace(/"/g, '""')}"`;
+}
+
+function formatForCmd(value) {
+  const text = String(value);
+  return /[\s"&|<>^()]/.test(text) ? quoteForCmd(text) : text;
+}
+
+function spawnOnce(executable, args = [], options = {}) {
+  const useCmdShim = process.platform === 'win32' && /\.(cmd|bat)$/i.test(executable);
   return new Promise((resolve, reject) => {
-    const child = spawn(getExecutableName(command), args, {
-      shell: false,
+    const spawnCommand = useCmdShim
+      ? `${formatForCmd(executable)} ${args.map(formatForCmd).join(' ')}`.trim()
+      : executable;
+    const spawnArgs = useCmdShim ? [] : args;
+
+    const child = spawn(spawnCommand, spawnArgs, {
+      shell: useCmdShim,
       windowsHide: true,
       ...options,
     });
@@ -50,13 +73,36 @@ function runCommand(command, args = [], options = {}) {
         return;
       }
 
-      const error = new Error(stderr.trim() || stdout.trim() || `${command} exited with code ${code}`);
+      const error = new Error(stderr.trim() || stdout.trim() || `${executable} exited with code ${code}`);
       error.code = code;
       error.stdout = stdout;
       error.stderr = stderr;
       reject(error);
     });
   });
+}
+
+async function runCommand(command, args = [], options = {}) {
+  const candidates = getExecutableCandidates(command);
+  let lastError = null;
+
+  for (const executable of candidates) {
+    try {
+      const result = await spawnOnce(executable, args, options);
+      return {
+        ...result,
+        executable,
+      };
+    } catch (error) {
+      lastError = error;
+      if (error && error.code === 'ENOENT') {
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw lastError || new Error(`${command} not found`);
 }
 
 function parseVersion(output) {
@@ -110,17 +156,111 @@ function compareVersions(a, b) {
   return 0;
 }
 
+function getWindowsNodeCandidatePaths() {
+  const candidates = [
+    'C:\\Program Files\\nodejs\\node.exe',
+    'C:\\Program Files (x86)\\nodejs\\node.exe',
+  ];
+
+  if (process.env.LOCALAPPDATA) {
+    candidates.push(path.join(process.env.LOCALAPPDATA, 'Programs', 'nodejs', 'node.exe'));
+  }
+
+  if (process.env.USERPROFILE) {
+    candidates.push(path.join(process.env.USERPROFILE, 'AppData', 'Local', 'Programs', 'nodejs', 'node.exe'));
+  }
+
+  return [...new Set(candidates)];
+}
+
+function getWindowsShimCandidatePaths(command) {
+  const candidates = [];
+
+  if (process.env.APPDATA) {
+    candidates.push(path.join(process.env.APPDATA, 'npm', `${command}.cmd`));
+    candidates.push(path.join(process.env.APPDATA, 'npm', `${command}.exe`));
+  }
+
+  if (process.env.LOCALAPPDATA) {
+    candidates.push(path.join(process.env.LOCALAPPDATA, 'pnpm', `${command}.cmd`));
+    candidates.push(path.join(process.env.LOCALAPPDATA, 'pnpm', `${command}.exe`));
+    candidates.push(path.join(process.env.LOCALAPPDATA, 'Programs', 'pnpm', `${command}.cmd`));
+  }
+
+  if (process.env.USERPROFILE) {
+    candidates.push(path.join(process.env.USERPROFILE, 'AppData', 'Roaming', 'npm', `${command}.cmd`));
+    candidates.push(path.join(process.env.USERPROFILE, 'AppData', 'Local', 'pnpm', `${command}.cmd`));
+  }
+
+  return [...new Set(candidates)];
+}
+
+async function resolveWindowsCommandPath(command) {
+  if (process.platform !== 'win32' || /[\\/]/.test(command)) {
+    return null;
+  }
+
+  try {
+    const result = await runCommand('where.exe', [command]);
+    const firstLine = String(result.stdout || '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find(Boolean);
+    return firstLine || null;
+  } catch {
+    return null;
+  }
+}
+
+async function detectWindowsCandidateBinary(args, candidatePaths) {
+  for (const candidate of candidatePaths) {
+    if (!fs.existsSync(candidate)) {
+      continue;
+    }
+
+    try {
+      const result = await runCommand(candidate, args);
+      const version = parseVersion(result.stdout || result.stderr);
+      return {
+        installed: true,
+        version,
+        raw: (result.stdout || result.stderr || '').trim(),
+        error: null,
+        source: 'windows-fallback',
+        path: candidate,
+      };
+    } catch {
+      // Continue trying other candidate locations.
+    }
+  }
+
+  return null;
+}
+
 async function detectBinary(command, args = ['--version']) {
   try {
     const result = await runCommand(command, args);
     const version = parseVersion(result.stdout || result.stderr);
+    const resolvedPath = await resolveWindowsCommandPath(command);
     return {
       installed: true,
       version,
       raw: (result.stdout || result.stderr || '').trim(),
       error: null,
+      source: 'path',
+      path: resolvedPath || result.executable || null,
     };
   } catch (error) {
+    if (process.platform === 'win32') {
+      const candidatePaths = command === 'node'
+        ? getWindowsNodeCandidatePaths()
+        : getWindowsShimCandidatePaths(command);
+      const fallback = await detectWindowsCandidateBinary(args, candidatePaths);
+      if (fallback) {
+        return fallback;
+      }
+    }
+
     const notFound = error && (error.code === 'ENOENT' || /not recognized|not found/i.test(error.message));
     return {
       installed: false,
@@ -149,6 +289,8 @@ async function inspectEnvironment() {
           version: listedVersion,
           raw: (listed.stdout || listed.stderr || '').trim(),
           error: null,
+          source: 'pnpm-global-list',
+          path: null,
         };
       }
     } catch {
@@ -214,6 +356,9 @@ module.exports = {
   parseVersion,
   compareVersions,
   parseOpenclawVersionFromPnpmList,
+  getExecutableCandidates,
+  getWindowsNodeCandidatePaths,
+  getWindowsShimCandidatePaths,
   getInstallCommandArgs,
   getInstallCommandString,
   installOpenclaw,

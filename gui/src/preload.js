@@ -8,7 +8,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('oclaw', {
-  /** @returns {Promise<{installed, installedVersion, cdnBase, npmRegistry, platform, arch, node, pnpm, installCommand}>} */
+  /** @returns {Promise<{installed, installedVersion, openclaw, cdnBase, npmRegistry, platform, arch, node, pnpm, installCommand}>} */
   getStatus: () => ipcRenderer.invoke('get-status'),
 
   /** @returns {Promise<{success, latest?, error?}>} */
