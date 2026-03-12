@@ -97,7 +97,7 @@ jobs:
 
       - name: Upload installation log on failure
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: manual-test-unix-install-log
           path: |

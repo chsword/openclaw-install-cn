@@ -221,7 +221,7 @@ jobs:
         run: ls -lh cli/dist/
 
       - name: Upload CLI binaries artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: cli-binaries
           path: |
@@ -315,7 +315,7 @@ jobs:
         run: ls -lh gui/dist/
 
       - name: Upload GUI artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_path }}
@@ -337,25 +337,25 @@ jobs:
           echo "tag=${{ needs.resolve-version.outputs.tag }}" >> "$GITHUB_OUTPUT"
 
       - name: Download CLI binaries
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           name: cli-binaries
           path: artifacts/cli/
 
       - name: Download Windows GUI
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           name: gui-win
           path: artifacts/gui/win/
 
       - name: Download macOS GUI
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           name: gui-mac
           path: artifacts/gui/mac/
 
       - name: Download Linux GUI
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           name: gui-linux
           path: artifacts/gui/linux/
@@ -524,11 +524,7 @@ jobs:
           oclaw upgrade
           \`\`\`
 
-          CLI 和 GUI 会先检查 Node.js、pnpm 和当前 OpenClaw 版本，再调用以下命令完成安装或升级：
-
-          \`\`\`bash
-          pnpm add -g openclaw@latest --registry=https://registry.npmmirror.com
-          \`\`\`
+          CLI 和 GUI 会先检查 Node.js、pnpm 和当前 OpenClaw 版本，再自动完成安装或升级流程，并统一使用中国大陆可访问的 npm 镜像源。
 
           ### 🖥️ GUI 安装程序
 
@@ -599,14 +595,14 @@ jobs:
       # Upload installer CLI packages and updated manifests as artifacts so that
       # deploy-to-cos can reuse them without re-packaging from scratch.
       - name: Upload CDN packages artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: cdn-packages
           path: cdn-packages/
           retention-days: 1
 
       - name: Upload CDN manifests artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: cdn-manifests
           path: |
@@ -630,31 +626,31 @@ jobs:
 
       # Reuse the installer CLI packages and updated manifests built by the release job.
       - name: Download CDN packages
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           name: cdn-packages
           path: cdn-packages/
 
       - name: Download CDN manifests
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           name: cdn-manifests
           path: cdn-template/
 
       - name: Download Windows GUI artifact
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           name: gui-win
           path: artifacts/gui/win/
 
       - name: Download macOS GUI artifact
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           name: gui-mac
           path: artifacts/gui/mac/
 
       - name: Download Linux GUI artifact
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           name: gui-linux
           path: artifacts/gui/linux/
@@ -770,7 +766,7 @@ jobs:
           node-version: '20'
 
       - name: Download CDN manifests
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           name: cdn-manifests
           path: cdn-template/
