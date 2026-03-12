@@ -29,6 +29,12 @@ if (target === 'win') {
 
   copy(setup, path.join(distDir, `openclaw-gui-setup-${version}-x64.exe`));
   copy(portable, path.join(distDir, `openclaw-gui-${version}-win32-x64.exe`));
+
+  // Updater artifacts (created when createUpdaterArtifacts: true)
+  const nsisZip = findFirst(path.join(tauriRoot, 'bundle', 'nsis'), (name) => /\.nsis\.zip$/i.test(name));
+  const nsisZipSig = findFirst(path.join(tauriRoot, 'bundle', 'nsis'), (name) => /\.nsis\.zip\.sig$/i.test(name));
+  if (nsisZip) copy(nsisZip, path.join(distDir, `openclaw-gui-setup-${version}-x64.nsis.zip`));
+  if (nsisZipSig) copy(nsisZipSig, path.join(distDir, `openclaw-gui-setup-${version}-x64.nsis.zip.sig`));
 }
 
 if (target === 'mac') {
@@ -54,6 +60,31 @@ if (target === 'mac') {
     const fallback = files[0];
     copy(fallback, path.join(distDir, `openclaw-gui-${version}-darwin-arm64.dmg`));
   }
+
+  // Updater artifacts (created when createUpdaterArtifacts: true)
+  const macosDir = path.join(tauriRoot, 'bundle', 'macos');
+  const appTarGzFiles = listFiles(macosDir).filter((f) => f.endsWith('.app.tar.gz'));
+  const appTarGzSigFiles = listFiles(macosDir).filter((f) => f.endsWith('.app.tar.gz.sig'));
+  for (const f of appTarGzFiles) {
+    const name = path.basename(f).toLowerCase();
+    if (name.includes('x64')) {
+      copy(f, path.join(distDir, `openclaw-gui-${version}-darwin-x64.app.tar.gz`));
+    } else if (name.includes('aarch64') || name.includes('arm64')) {
+      copy(f, path.join(distDir, `openclaw-gui-${version}-darwin-arm64.app.tar.gz`));
+    } else if (appTarGzFiles.length === 1) {
+      copy(f, path.join(distDir, `openclaw-gui-${version}-darwin-arm64.app.tar.gz`));
+    }
+  }
+  for (const f of appTarGzSigFiles) {
+    const name = path.basename(f).toLowerCase();
+    if (name.includes('x64')) {
+      copy(f, path.join(distDir, `openclaw-gui-${version}-darwin-x64.app.tar.gz.sig`));
+    } else if (name.includes('aarch64') || name.includes('arm64')) {
+      copy(f, path.join(distDir, `openclaw-gui-${version}-darwin-arm64.app.tar.gz.sig`));
+    } else if (appTarGzSigFiles.length === 1) {
+      copy(f, path.join(distDir, `openclaw-gui-${version}-darwin-arm64.app.tar.gz.sig`));
+    }
+  }
 }
 
 if (target === 'linux') {
@@ -62,6 +93,12 @@ if (target === 'linux') {
     throw new Error('Linux AppImage not found. Please run `tauri build --bundles appimage` first.');
   }
   copy(appImage, path.join(distDir, `openclaw-gui-${version}-linux-x86_64.AppImage`));
+
+  // Updater artifacts (created when createUpdaterArtifacts: true)
+  const appImageTarGz = findFirst(path.join(tauriRoot, 'bundle', 'appimage'), (name) => name.endsWith('.AppImage.tar.gz'));
+  const appImageTarGzSig = findFirst(path.join(tauriRoot, 'bundle', 'appimage'), (name) => name.endsWith('.AppImage.tar.gz.sig'));
+  if (appImageTarGz) copy(appImageTarGz, path.join(distDir, `openclaw-gui-${version}-linux-x86_64.AppImage.tar.gz`));
+  if (appImageTarGzSig) copy(appImageTarGzSig, path.join(distDir, `openclaw-gui-${version}-linux-x86_64.AppImage.tar.gz.sig`));
 }
 
 console.log(`Collected ${target} artifacts into: ${distDir}`);

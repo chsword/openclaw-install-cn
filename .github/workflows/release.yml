@@ -245,16 +245,19 @@ jobs:
             build_cmd: build:win
             artifact_name: gui-win
             artifact_path: gui/dist/**/*.exe
+            updater_artifact_name: gui-updater-win
           - os: macos-latest
             name: macOS
             build_cmd: build:mac
             artifact_name: gui-mac
             artifact_path: gui/dist/*.dmg
+            updater_artifact_name: gui-updater-mac
           - os: ubuntu-latest
             name: Linux
             build_cmd: build:linux
             artifact_name: gui-linux
             artifact_path: gui/dist/*.AppImage
+            updater_artifact_name: gui-updater-linux
 
     steps:
       - uses: actions/checkout@v6
@@ -317,6 +320,8 @@ jobs:
         working-directory: gui
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       - name: List GUI build output
         shell: bash
@@ -327,6 +332,20 @@ jobs:
         with:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_path }}
+          retention-days: 1
+
+      - name: Upload GUI updater artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.updater_artifact_name }}
+          path: |
+            gui/dist/*.nsis.zip
+            gui/dist/*.nsis.zip.sig
+            gui/dist/*.app.tar.gz
+            gui/dist/*.app.tar.gz.sig
+            gui/dist/*.AppImage.tar.gz
+            gui/dist/*.AppImage.tar.gz.sig
+          if-no-files-found: ignore
           retention-days: 1
 
   # ── 4. Create GitHub Release ────────────────────────────────────────────────
@@ -367,6 +386,27 @@ jobs:
         with:
           name: gui-linux
           path: artifacts/gui/linux/
+
+      - name: Download Windows GUI updater artifacts
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: gui-updater-win
+          path: artifacts/gui/updater/win/
+
+      - name: Download macOS GUI updater artifacts
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: gui-updater-mac
+          path: artifacts/gui/updater/mac/
+
+      - name: Download Linux GUI updater artifacts
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: gui-updater-linux
+          path: artifacts/gui/updater/linux/
 
       - name: Make CLI binaries executable
         run: chmod +x artifacts/cli/oclaw-darwin-x64 artifacts/cli/oclaw-darwin-arm64 artifacts/cli/oclaw-linux-x64 || true
@@ -594,6 +634,12 @@ jobs:
             artifacts/gui/win/**/*.exe
             artifacts/gui/mac/*.dmg
             artifacts/gui/linux/*.AppImage
+            artifacts/gui/updater/win/*.nsis.zip
+            artifacts/gui/updater/win/*.nsis.zip.sig
+            artifacts/gui/updater/mac/*.app.tar.gz
+            artifacts/gui/updater/mac/*.app.tar.gz.sig
+            artifacts/gui/updater/linux/*.AppImage.tar.gz
+            artifacts/gui/updater/linux/*.AppImage.tar.gz.sig
             scripts/install.sh
             scripts/install.ps1
             cdn-template/manifest.json
@@ -615,6 +661,15 @@ jobs:
           name: cdn-manifests
           path: |
             cdn-template/cli-manifest.json
+          retention-days: 1
+
+      - name: Upload GUI updater artifacts for CDN
+        uses: actions/upload-artifact@v4
+        with:
+          name: cdn-gui-updater
+          path: |
+            artifacts/gui/updater/
+          if-no-files-found: ignore
           retention-days: 1
 
   # ── 5. Upload to Tencent COS (official CDN) ────────────────────────────────
@@ -662,6 +717,13 @@ jobs:
         with:
           name: gui-linux
           path: artifacts/gui/linux/
+
+      - name: Download GUI updater artifacts
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: cdn-gui-updater
+          path: artifacts/gui/updater/
 
       - name: Install coscmd
         run: pip install coscmd
@@ -712,11 +774,93 @@ jobs:
             cos_upload_if_new "$f" "gui/${VERSION}/${fname}"
           done
 
+          # Upload GUI updater archives to gui/{VERSION}/ on COS (signed update packages).
+          for pattern in "*.nsis.zip" "*.app.tar.gz" "*.AppImage.tar.gz"; do
+            find artifacts/gui/updater/ -name "$pattern" 2>/dev/null | while read -r f; do
+              fname="$(basename "$f")"
+              cos_upload_if_new "$f" "gui/${VERSION}/${fname}"
+            done
+          done
+
           # Upload install scripts and CLI manifest (always overwrite – these are not versioned).
           # manifest.json is managed by sync-openclaw.yml as the latest OpenClaw version marker.
           coscmd upload scripts/install.sh  install.sh
           coscmd upload scripts/install.ps1 install.ps1
           coscmd upload cdn-template/cli-manifest.json cli-manifest.json
+
+      - name: Generate and upload GUI updater latest.json files
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          CDN_DOMAIN: https://oclaw.chatu.plus
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+
+          # Generate per-platform latest.json for Tauri auto-updater.
+          # These files are uploaded to gui/{target}/{arch}/latest.json on COS and
+          # are fetched by the app's tauri-plugin-updater using the configured endpoint.
+          python3 - <<'PYEOF'
+          import json, os, glob, datetime
+
+          version   = os.environ['VERSION']
+          cdn_base  = os.environ['CDN_DOMAIN']
+          updater_base = cdn_base + '/gui/' + version
+          pub_date  = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+          def read_sig(path):
+              try:
+                  with open(path, 'r') as f:
+                      return f.read().strip()
+              except FileNotFoundError:
+                  return None
+
+          # Collect signatures and build per-platform latest.json
+          platforms = {
+              'windows/x86_64': {
+                  'url_file': f'openclaw-gui-setup-{version}-x64.nsis.zip',
+                  'sig_file': f'artifacts/gui/updater/win/openclaw-gui-setup-{version}-x64.nsis.zip.sig',
+              },
+              'darwin/x86_64': {
+                  'url_file': f'openclaw-gui-{version}-darwin-x64.app.tar.gz',
+                  'sig_file': f'artifacts/gui/updater/mac/openclaw-gui-{version}-darwin-x64.app.tar.gz.sig',
+              },
+              'darwin/aarch64': {
+                  'url_file': f'openclaw-gui-{version}-darwin-arm64.app.tar.gz',
+                  'sig_file': f'artifacts/gui/updater/mac/openclaw-gui-{version}-darwin-arm64.app.tar.gz.sig',
+              },
+              'linux/x86_64': {
+                  'url_file': f'openclaw-gui-{version}-linux-x86_64.AppImage.tar.gz',
+                  'sig_file': f'artifacts/gui/updater/linux/openclaw-gui-{version}-linux-x86_64.AppImage.tar.gz.sig',
+              },
+          }
+
+          os.makedirs('updater-manifests', exist_ok=True)
+          for platform_path, info in platforms.items():
+              sig = read_sig(info['sig_file'])
+              if sig is None:
+                  print(f"WARNING: Signature file not found for {platform_path}, skipping latest.json generation")
+                  continue
+              manifest = {
+                  'version': version,
+                  'notes': '',
+                  'pub_date': pub_date,
+                  'url': updater_base + '/' + info['url_file'],
+                  'signature': sig,
+              }
+              target, arch = platform_path.split('/')
+              os.makedirs(f'updater-manifests/{target}/{arch}', exist_ok=True)
+              out_path = f'updater-manifests/{target}/{arch}/latest.json'
+              with open(out_path, 'w') as f:
+                  json.dump(manifest, f, indent=2)
+              print(f"Generated {out_path}")
+          PYEOF
+
+          # Upload latest.json manifests to gui/{target}/{arch}/latest.json on COS.
+          # These are always overwritten so clients always get the freshest update info.
+          find updater-manifests/ -name "latest.json" | while read -r f; do
+            rel="${f#updater-manifests/}"
+            echo "UPLOAD $f -> gui/${rel}"
+            coscmd upload "$f" "gui/${rel}"
+          done
 
       - name: Refresh CDN cache
         env:
@@ -750,6 +894,16 @@ jobs:
               base + '/gui/' + v + '/openclaw-gui-' + v + '-darwin-x64.dmg',
               base + '/gui/' + v + '/openclaw-gui-' + v + '-darwin-arm64.dmg',
               base + '/gui/' + v + '/openclaw-gui-' + v + '-linux-x86_64.AppImage',
+              # Updater archives
+              base + '/gui/' + v + '/openclaw-gui-setup-' + v + '-x64.nsis.zip',
+              base + '/gui/' + v + '/openclaw-gui-' + v + '-darwin-x64.app.tar.gz',
+              base + '/gui/' + v + '/openclaw-gui-' + v + '-darwin-arm64.app.tar.gz',
+              base + '/gui/' + v + '/openclaw-gui-' + v + '-linux-x86_64.AppImage.tar.gz',
+              # Updater latest.json manifests (always overwritten)
+              base + '/gui/windows/x86_64/latest.json',
+              base + '/gui/darwin/x86_64/latest.json',
+              base + '/gui/darwin/aarch64/latest.json',
+              base + '/gui/linux/x86_64/latest.json',
           ]))
           PYEOF
           )
