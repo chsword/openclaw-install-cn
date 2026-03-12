@@ -391,9 +391,17 @@ function Install-FromCdn {
   Write-Info "Extracting..."
   Expand-Archive -Force -LiteralPath "$pkgPath" -DestinationPath "$tmpDir"
 
-  # Find oclaw.exe
+  # Find oclaw.exe – canonical name used by packages built with the current release workflow.
+  # Older packages (e.g. v1.0.19) used the platform-specific name (oclaw-win-x64.exe), so
+  # fall back to that when the canonical name is not present.
   $exePath = Get-ChildItem -Path $tmpDir -Filter 'oclaw.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
   if (-not $exePath) {
+    $legacyExeName = "oclaw-win-${arch}.exe"
+    $exePath = Get-ChildItem -Path $tmpDir -Filter $legacyExeName -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+  }
+  if (-not $exePath) {
+    $extractedNames = (Get-ChildItem -Path $tmpDir -Recurse -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name) -join "`n"
+    Write-Verbose-Log "Extracted contents:`n$extractedNames"
     Write-Fail "Could not find oclaw.exe in downloaded package."
   }
 
@@ -497,8 +505,15 @@ function Install-FromLocalBundle {
   Write-Info "Extracting oclaw CLI from local bundle..."
   Expand-Archive -Force -LiteralPath "$cliPkgPath" -DestinationPath "$tmpDir"
 
+  # Find oclaw.exe – canonical name; fall back to legacy platform-specific name for older bundles.
   $exePath = Get-ChildItem -Path $tmpDir -Filter 'oclaw.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
   if (-not $exePath) {
+    $legacyExeName = "oclaw-win-${arch}.exe"
+    $exePath = Get-ChildItem -Path $tmpDir -Filter $legacyExeName -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+  }
+  if (-not $exePath) {
+    $extractedNames = (Get-ChildItem -Path $tmpDir -Recurse -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name) -join "`n"
+    Write-Verbose-Log "Extracted contents:`n$extractedNames"
     Write-Fail "Could not find oclaw.exe in CLI package."
   }
 
