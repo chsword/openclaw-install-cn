@@ -1,50 +1,28 @@
-name: Manual Test – macOS CLI (real CDN install & upgrade)
+name: Manual Test – macOS CLI pnpm install smoke test
 
-# Manually triggered workflow that validates the oclaw CLI end-to-end
-# against the REAL CDN (https://oclaw.chatu.plus) on macOS runners.
-#
-# Real OpenClaw packages are available only for macOS (darwin-x64 / darwin-arm64).
-# Linux packages are not yet published to the CDN, so Linux is not in the matrix.
-#
-# What is tested:
-#   1. Build the oclaw CLI binary from source (oclaw-darwin-x64).
-#   2. Install the built CLI binary into the expected location.
-#   3. Run `oclaw install` which downloads the real OpenClaw app from the CDN,
-#      verifies its checksum, and extracts it.
-#   4. Verify `oclaw status --json` shows installed=true and a non-empty
-#      installedVersion that is a real CDN release version.
-#   5. Run `oclaw upgrade` – connects to the real CDN:
-#        • If a newer version is available, it is downloaded and installed.
-#        • If already on the latest version, the command exits successfully.
-#   6. Verify `oclaw status --json` reflects the post-upgrade state.
-#
-# No mocks: all OpenClaw packages are downloaded from the real CDN.
+# Manually triggered workflow that validates the current CLI model on macOS:
+# environment detection, manifest lookup, and pnpm-based install/upgrade.
 
 on:
   workflow_dispatch:
-  # Run every Monday at 02:00 UTC to catch CDN regressions proactively.
   schedule:
     - cron: '0 2 * * 1'
-  # Also run automatically after each successful Release workflow.
   workflow_run:
     workflows: ["Release"]
     types:
       - completed
 
 jobs:
-  # ── macOS real-CDN install & upgrade end-to-end test ─────────────────────
-  test-macos-cli-real:
-    name: macOS CLI – real CDN install & upgrade
+  test-macos-cli-pnpm:
+    name: macOS CLI – pnpm install smoke test
     runs-on: macos-latest
     permissions:
       contents: read
 
     steps:
-      # ── 1. Checkout ─────────────────────────────────────────────────────────
       - name: Checkout
         uses: actions/checkout@v6
 
-      # ── 2. Set up Node.js ────────────────────────────────────────────────────
       - name: Set up Node.js 20
         uses: actions/setup-node@v6
         with:
@@ -52,53 +30,14 @@ jobs:
           cache: 'npm'
           cache-dependency-path: cli/package-lock.json
 
-      - name: Cache node_modules
-        uses: actions/cache@v4
-        id: cache-node-modules
-        with:
-          path: cli/node_modules
-          key: ${{ runner.os }}-node20-cli-node-modules-${{ hashFiles('cli/package-lock.json') }}
-
       - name: Install CLI dependencies
-        if: steps.cache-node-modules.outputs.cache-hit != 'true'
         run: npm ci
         working-directory: cli
 
-      # ── 3. Build CLI binary for macOS (x64) ─────────────────────────────────
-      - name: Cache built macOS CLI binary
-        uses: actions/cache@v4
-        id: cache-cli-binary
-        with:
-          path: cli/dist/oclaw-darwin-x64
-          key: ${{ runner.os }}-cli-binary-macos-x64-${{ hashFiles('cli/src/**/*', 'cli/package.json') }}
-
-      - name: Build macOS CLI binary (x64)
-        if: steps.cache-cli-binary.outputs.cache-hit != 'true'
+      - name: Build macOS CLI binary
         run: npm run build:mac-x64
         working-directory: cli
 
-      - name: Smoke-test built binary
-        run: |
-          BIN="./cli/dist/oclaw-darwin-x64"
-          chmod +x "$BIN"
-          VER=$("$BIN" --version 2>&1)
-          echo "Built oclaw version: $VER"
-          if [ -z "$VER" ]; then
-            echo "::error::Binary did not return a version"
-            exit 1
-          fi
-
-      # ── 4. Read CLI version from package.json ────────────────────────────────
-      - name: Read CLI version
-        id: cli_ver
-        run: |
-          V=$(node -e "process.stdout.write(require('./cli/package.json').version)")
-          echo "version=$V" >> "$GITHUB_OUTPUT"
-          echo "CLI version: $V"
-
-      # ── 5. Install built CLI binary directly ─────────────────────────────────
-      # Places the just-built binary into a dedicated bin directory so that all
-      # subsequent oclaw commands exercise the code under test.
       - name: Install built CLI binary
         env:
           OCLAW_BIN_DIR: ${{ runner.temp }}/oclaw-bin
@@ -106,138 +45,56 @@ jobs:
           mkdir -p "$OCLAW_BIN_DIR"
           cp cli/dist/oclaw-darwin-x64 "$OCLAW_BIN_DIR/oclaw"
           chmod +x "$OCLAW_BIN_DIR/oclaw"
+          "$OCLAW_BIN_DIR/oclaw" --version
 
-          VER=$("$OCLAW_BIN_DIR/oclaw" --version 2>&1)
-          echo "Installed oclaw version: $VER"
-          if [ -z "$VER" ]; then
-            echo "::error::Installed binary did not return a version"
-            exit 1
-          fi
-          echo "✔ oclaw CLI installed at: $OCLAW_BIN_DIR/oclaw"
+      - name: Install pnpm
+        run: npm install -g pnpm
 
-      # ── 6. Install OpenClaw from real CDN ────────────────────────────────────
-      # `oclaw install` connects to https://oclaw.chatu.plus, fetches the real
-      # manifest, downloads the real OpenClaw package, verifies its checksum,
-      # and extracts it into the install directory.
-      # The config is updated so subsequent commands (upgrade, status) use the
-      # same install directory automatically.
-      - name: Install OpenClaw from real CDN
+      - name: Check status before install
         env:
           OCLAW_BIN_DIR: ${{ runner.temp }}/oclaw-bin
-          OCLAW_INSTALL_DIR: ${{ runner.temp }}/openclaw-app
         run: |
-          OCLAW_BIN="$OCLAW_BIN_DIR/oclaw"
+          "$OCLAW_BIN_DIR/oclaw" status --check-updates --json
 
-          echo "Installing OpenClaw via real CDN into: $OCLAW_INSTALL_DIR"
-          "$OCLAW_BIN" install --dir "$OCLAW_INSTALL_DIR"
+      - name: Install OpenClaw via pnpm
+        env:
+          OCLAW_BIN_DIR: ${{ runner.temp }}/oclaw-bin
+        run: |
+          "$OCLAW_BIN_DIR/oclaw" install
 
-          echo "✔ oclaw install completed successfully"
-
-      # ── 7. Verify oclaw status after install ─────────────────────────────────
-      - name: Verify oclaw status (after install)
+      - name: Verify status after install
         id: status_initial
         env:
           OCLAW_BIN_DIR: ${{ runner.temp }}/oclaw-bin
-          OCLAW_INSTALL_DIR: ${{ runner.temp }}/openclaw-app
         run: |
-          OCLAW_BIN="$OCLAW_BIN_DIR/oclaw"
-
-          STATUS_JSON=$("$OCLAW_BIN" status --json 2>&1)
-          echo "oclaw status --json output:"
+          STATUS_JSON=$("$OCLAW_BIN_DIR/oclaw" status --json 2>&1)
           echo "$STATUS_JSON"
-
-          INSTALLED=$(echo "$STATUS_JSON" | node -e \
-            "const d=require('fs').readFileSync('/dev/stdin','utf8'); \
-             const o=JSON.parse(d); \
-             process.stdout.write(String(o.installed))")
-          INSTALLED_VER=$(echo "$STATUS_JSON" | node -e \
-            "const d=require('fs').readFileSync('/dev/stdin','utf8'); \
-             const o=JSON.parse(d); \
-             process.stdout.write(o.installedVersion||'')")
-
-          if [ "$INSTALLED" != "true" ]; then
-            echo "::error::oclaw status reports OpenClaw is NOT installed!"
-            exit 1
-          fi
-          if [ -z "$INSTALLED_VER" ]; then
-            echo "::error::installedVersion is empty after install"
-            exit 1
-          fi
-
+          INSTALLED=$(echo "$STATUS_JSON" | node -e "const d=require('fs').readFileSync('/dev/stdin','utf8'); process.stdout.write(String(JSON.parse(d).installed))")
+          INSTALLED_VER=$(echo "$STATUS_JSON" | node -e "const d=require('fs').readFileSync('/dev/stdin','utf8'); process.stdout.write(JSON.parse(d).installedVersion||'')")
+          [ "$INSTALLED" = "true" ] || { echo "::error::OpenClaw not installed"; exit 1; }
+          [ -n "$INSTALLED_VER" ] || { echo "::error::installedVersion is empty"; exit 1; }
           echo "installed_version=$INSTALLED_VER" >> "$GITHUB_OUTPUT"
-          echo "  ✔ OpenClaw $INSTALLED_VER is installed (real CDN package)"
 
-      # ── 8. Upgrade OpenClaw via real CDN ─────────────────────────────────────
-      # `oclaw upgrade` fetches the latest version from the real CDN.
-      # If a newer version is available it downloads and installs it.
-      # If already on the latest version it prints an informational message
-      # and exits successfully.
-      - name: Upgrade OpenClaw via real CDN
+      - name: Upgrade OpenClaw via pnpm
         env:
           OCLAW_BIN_DIR: ${{ runner.temp }}/oclaw-bin
-          OCLAW_INSTALL_DIR: ${{ runner.temp }}/openclaw-app
         run: |
-          OCLAW_BIN="$OCLAW_BIN_DIR/oclaw"
+          "$OCLAW_BIN_DIR/oclaw" upgrade
 
-          echo "Running oclaw upgrade against real CDN..."
-          "$OCLAW_BIN" upgrade
-
-          echo "✔ oclaw upgrade completed successfully"
-
-      # ── 9. Verify oclaw status after upgrade ─────────────────────────────────
-      - name: Verify oclaw status (after upgrade)
+      - name: Verify status after upgrade
         env:
           OCLAW_BIN_DIR: ${{ runner.temp }}/oclaw-bin
-          OCLAW_INSTALL_DIR: ${{ runner.temp }}/openclaw-app
           PRE_UPGRADE_VERSION: ${{ steps.status_initial.outputs.installed_version }}
         run: |
-          OCLAW_BIN="$OCLAW_BIN_DIR/oclaw"
-
-          STATUS_JSON=$("$OCLAW_BIN" status --json 2>&1)
-          echo "oclaw status --json output (after upgrade):"
+          STATUS_JSON=$("$OCLAW_BIN_DIR/oclaw" status --json 2>&1)
           echo "$STATUS_JSON"
+          INSTALLED=$(echo "$STATUS_JSON" | node -e "const d=require('fs').readFileSync('/dev/stdin','utf8'); process.stdout.write(String(JSON.parse(d).installed))")
+          INSTALLED_VER=$(echo "$STATUS_JSON" | node -e "const d=require('fs').readFileSync('/dev/stdin','utf8'); process.stdout.write(JSON.parse(d).installedVersion||'')")
+          [ "$INSTALLED" = "true" ] || { echo "::error::OpenClaw not installed after upgrade"; exit 1; }
+          [ -n "$INSTALLED_VER" ] || { echo "::error::installedVersion is empty after upgrade"; exit 1; }
+          echo "Installed version after upgrade: $INSTALLED_VER"
+          echo "Previous installed version: $PRE_UPGRADE_VERSION"
 
-          INSTALLED=$(echo "$STATUS_JSON" | node -e \
-            "const d=require('fs').readFileSync('/dev/stdin','utf8'); \
-             const o=JSON.parse(d); \
-             process.stdout.write(String(o.installed))")
-          INSTALLED_VER=$(echo "$STATUS_JSON" | node -e \
-            "const d=require('fs').readFileSync('/dev/stdin','utf8'); \
-             const o=JSON.parse(d); \
-             process.stdout.write(o.installedVersion||'')")
-
-          if [ "$INSTALLED" != "true" ]; then
-            echo "::error::oclaw status reports OpenClaw is NOT installed after upgrade!"
-            exit 1
-          fi
-          if [ -z "$INSTALLED_VER" ]; then
-            echo "::error::installedVersion is empty after upgrade"
-            exit 1
-          fi
-
-          echo "  ✔ OpenClaw $INSTALLED_VER is installed after upgrade"
-
-          if [ "$INSTALLED_VER" = "$PRE_UPGRADE_VERSION" ]; then
-            echo "  ℹ Already on the latest version ($INSTALLED_VER) – upgrade had nothing to do"
-          else
-            echo "  ✔ Upgraded from $PRE_UPGRADE_VERSION → $INSTALLED_VER"
-          fi
-
-      # ── 10. Print final summary ──────────────────────────────────────────────
-      - name: Print test summary
-        if: success()
-        env:
-          CLI_VERSION: ${{ steps.cli_ver.outputs.version }}
-        run: |
-          echo ""
-          echo "  ✔ All macOS CLI real-CDN tests passed!"
-          echo ""
-          echo "  oclaw CLI version  : $CLI_VERSION  (built from source)"
-          echo ""
-          echo "  Tests used the real CDN (https://oclaw.chatu.plus)"
-          echo "  No mocked packages were used."
-
-      # ── 11. Upload install log on failure ────────────────────────────────────
       - name: Upload installation log on failure
         if: failure()
         uses: actions/upload-artifact@v7

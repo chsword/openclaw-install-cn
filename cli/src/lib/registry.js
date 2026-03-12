@@ -2,30 +2,6 @@
 
 /**
  * Version registry - fetches version info from CDN manifest.
- *
- * CDN manifest structure (at {cdnBase}/manifest.json):
- * {
- *   "latest": "1.2.3",
- *   "versions": [
- *     {
- *       "version": "1.2.3",
- *       "releaseDate": "2025-01-01",
- *       "description": "Release notes",
- *       "files": {
- *         "win32-x64": "openclaw-1.2.3-win32-x64.zip",
- *         "darwin-x64": "openclaw-1.2.3-darwin-x64.tar.gz",
- *         "darwin-arm64": "openclaw-1.2.3-darwin-arm64.tar.gz",
- *         "linux-x64": "openclaw-1.2.3-linux-x64.tar.gz"
- *       },
- *       "checksums": {
- *         "win32-x64": "sha256:abc123...",
- *         "darwin-x64": "sha256:def456...",
- *         "darwin-arm64": "sha256:ghi789...",
- *         "linux-x64": "sha256:jkl012..."
- *       }
- *     }
- *   ]
- * }
  */
 
 const https = require('https');
@@ -103,38 +79,8 @@ async function getLatestVersion(cdnBase) {
   return manifest.latest;
 }
 
-/**
- * Get full info for a specific version (or latest).
- * @param {string} cdnBase
- * @param {string} [version] - defaults to latest
- * @returns {Promise<Object>}
- */
-async function getVersionInfo(cdnBase, version) {
-  const manifest = await fetchManifest(cdnBase);
-  const target = version || manifest.latest;
-  debug(`Selected version: ${target}`);
-  const entry = (manifest.versions || []).find((v) => v.version === target);
-  if (!entry) {
-    throw new Error(`Version ${target} not found in manifest`);
-  }
-  return entry;
-}
-
-/**
- * Build the download URL for a package.
- * @param {string} cdnBase
- * @param {string} version
- * @param {string} filename
- * @returns {string}
- */
-function buildDownloadUrl(cdnBase, version, filename) {
-  return `${cdnBase.replace(/\/$/, '')}/pkg/${version}/${filename}`;
-}
-
 module.exports = {
   fetchManifest,
   getLatestVersion,
-  getVersionInfo,
-  buildDownloadUrl,
   fetchJson,
 };

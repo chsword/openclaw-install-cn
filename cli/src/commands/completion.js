@@ -25,14 +25,13 @@ const SUBCOMMANDS = [
     name: 'status',
     description: 'Show current installation status and version',
     options: [
-      { flag: '--check-updates', description: 'also check CDN for the latest available version', hasArg: false },
+      { flag: '--check-updates', description: 'also check manifest.json for the latest available version', hasArg: false },
     ],
   },
   {
     name: 'config',
-    description: 'View or update oclaw configuration',
+    description: 'View oclaw configuration',
     options: [
-      { flag: '--dir', description: 'set the installation directory', hasArg: true },
       { flag: '--reset', description: 'reset configuration to defaults', hasArg: false },
       { flag: '--list', description: 'list current configuration (default action)', hasArg: false },
     ],

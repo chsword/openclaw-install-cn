@@ -12,8 +12,6 @@ const http   = require('http');
 const {
   fetchManifest,
   getLatestVersion,
-  getVersionInfo,
-  buildDownloadUrl,
   fetchJson,
 } = require('../lib/registry');
 
@@ -42,25 +40,11 @@ const SAMPLE_MANIFEST = {
       version: '1.2.3',
       releaseDate: '2025-01-01',
       description: 'Latest release',
-      files: {
-        'win32-x64':   'openclaw-1.2.3-win32-x64.zip',
-        'darwin-x64':  'openclaw-1.2.3-darwin-x64.tar.gz',
-        'darwin-arm64':'openclaw-1.2.3-darwin-arm64.tar.gz',
-        'linux-x64':   'openclaw-1.2.3-linux-x64.tar.gz',
-      },
-      checksums: {
-        'win32-x64':   'sha256:aaa',
-        'darwin-x64':  'sha256:bbb',
-        'darwin-arm64':'sha256:ccc',
-        'linux-x64':   'sha256:ddd',
-      },
     },
     {
       version: '1.0.0',
       releaseDate: '2024-01-01',
       description: 'First release',
-      files: { 'linux-x64': 'openclaw-1.0.0-linux-x64.tar.gz' },
-      checksums: { 'linux-x64': 'sha256:eee' },
     },
   ],
 };
@@ -214,65 +198,3 @@ describe('getLatestVersion', () => {
   });
 });
 
-// ── getVersionInfo ────────────────────────────────────────────────────────────
-
-describe('getVersionInfo', () => {
-  test('returns info for the latest version when no version specified', async () => {
-    const { server, url } = await startServer((req, res) => {
-      const body = JSON.stringify(SAMPLE_MANIFEST);
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) });
-      res.end(body);
-    });
-    try {
-      const info = await getVersionInfo(url);
-      assert.equal(info.version, '1.2.3');
-      assert.ok(info.files);
-    } finally {
-      await stopServer(server);
-    }
-  });
-
-  test('returns info for a specific version', async () => {
-    const { server, url } = await startServer((req, res) => {
-      const body = JSON.stringify(SAMPLE_MANIFEST);
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) });
-      res.end(body);
-    });
-    try {
-      const info = await getVersionInfo(url, '1.0.0');
-      assert.equal(info.version, '1.0.0');
-    } finally {
-      await stopServer(server);
-    }
-  });
-
-  test('throws when requested version is not found', async () => {
-    const { server, url } = await startServer((req, res) => {
-      const body = JSON.stringify(SAMPLE_MANIFEST);
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) });
-      res.end(body);
-    });
-    try {
-      await assert.rejects(
-        getVersionInfo(url, '9.9.9'),
-        /9\.9\.9 not found/i,
-      );
-    } finally {
-      await stopServer(server);
-    }
-  });
-});
-
-// ── buildDownloadUrl ──────────────────────────────────────────────────────────
-
-describe('buildDownloadUrl', () => {
-  test('builds correct download URL', () => {
-    const url = buildDownloadUrl('https://cdn.example.com', '1.2.3', 'openclaw-1.2.3-linux-x64.tar.gz');
-    assert.equal(url, 'https://cdn.example.com/pkg/1.2.3/openclaw-1.2.3-linux-x64.tar.gz');
-  });
-
-  test('strips trailing slash from cdnBase', () => {
-    const url = buildDownloadUrl('https://cdn.example.com/', '1.0.0', 'openclaw-1.0.0-win32-x64.zip');
-    assert.equal(url, 'https://cdn.example.com/pkg/1.0.0/openclaw-1.0.0-win32-x64.zip');
-  });
-});

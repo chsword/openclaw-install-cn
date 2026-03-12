@@ -1,7 +1,7 @@
 {
   "name": "openclaw-gui",
   "version": "1.0.20",
-  "description": "OpenClaw cross-platform GUI installer/updater",
+  "description": "OpenClaw cross-platform GUI assistant for pnpm-based install and upgrade",
   "repository": {
     "type": "git",
     "url": "https://github.com/chsword/openclaw-install-cn.git"
@@ -9,7 +9,7 @@
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
-    "test": "node --test src/__tests__/config.test.js src/__tests__/platform.test.js src/__tests__/installer.test.js src/__tests__/downloader.test.js src/__tests__/logger.test.js src/__tests__/registry.test.js",
+    "test": "node --test src/__tests__/config.test.js src/__tests__/platform.test.js src/__tests__/logger.test.js src/__tests__/registry.test.js",
     "build": "electron-builder --win",
     "build:win": "electron-builder --win",
     "build:mac": "electron-builder --mac",
@@ -19,7 +19,7 @@
   },
   "keywords": [
     "openclaw",
-    "installer",
+    "assistant",
     "electron",
     "windows",
     "macos",
@@ -33,7 +33,7 @@
   },
   "build": {
     "appId": "ai.openclaw.installer",
-    "productName": "OpenClaw Installer",
+    "productName": "OpenClaw Assistant",
     "copyright": "Copyright © 2025",
     "icon": "assets/icon.png",
     "artifactName": "${name}-${version}-${platform}-${arch}.${ext}",

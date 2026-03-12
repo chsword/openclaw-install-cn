@@ -1,6 +1,6 @@
 'use strict';
 
-const { test, describe, before, after } = require('node:test');
+const { test, describe, before, beforeEach, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
@@ -27,6 +27,10 @@ const {
 describe('config', () => {
   before(() => {
     fs.mkdirSync(tmpDir, { recursive: true });
+  });
+
+  beforeEach(() => {
+    fs.rmSync(getConfigFilePath(), { force: true });
   });
 
   after(() => {

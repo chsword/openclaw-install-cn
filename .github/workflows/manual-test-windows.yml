@@ -1,52 +1,28 @@
-name: Manual Test – Windows CLI (real CDN install & upgrade)
+name: Manual Test – Windows CLI pnpm install smoke test
 
-# Manually triggered workflow that validates the oclaw CLI end-to-end
-# against the REAL CDN (https://oclaw.chatu.plus) on a Windows runner.
-#
-# NOTE: Real OpenClaw packages for Windows (win32-x64) are not yet published to
-# the CDN.  When they become available the `oclaw install` step will succeed
-# automatically without any workflow changes.
-#
-# What is tested:
-#   1. Build the oclaw CLI binary from source (oclaw-win-x64.exe).
-#   2. Install the built CLI binary into the expected location.
-#   3. Run `oclaw install` which attempts to download the real OpenClaw app
-#      from the CDN.  The step is marked continue-on-error and the result is
-#      reported in the summary – it will succeed once Windows packages are
-#      published to the CDN.
-#   4. If the install succeeded, verify `oclaw status --json` shows
-#      installed=true and a non-empty installedVersion.
-#   5. If the install succeeded, run `oclaw upgrade` against the real CDN.
-#   6. Print a summary of all results.
-#
-# No mocks: no fake openclaw.cmd scripts are created.  All package downloads
-# use the real CDN.
+# Manually triggered workflow that validates the current CLI model on Windows:
+# environment detection, manifest lookup, and pnpm-based install/upgrade.
 
 on:
   workflow_dispatch:
-  # Run every Monday at 03:00 UTC to catch CDN regressions proactively.
   schedule:
     - cron: '0 3 * * 1'
-  # Also run automatically after each successful Release workflow.
   workflow_run:
     workflows: ["Release"]
     types:
       - completed
 
 jobs:
-  # ── Windows real-CDN CLI test ─────────────────────────────────────────────
-  test-windows-cli-real:
-    name: Windows CLI – real CDN install & upgrade
+  test-windows-cli-pnpm:
+    name: Windows CLI – pnpm install smoke test
     runs-on: windows-latest
     permissions:
       contents: read
 
     steps:
-      # ── 1. Checkout ─────────────────────────────────────────────────────────
       - name: Checkout
         uses: actions/checkout@v6
 
-      # ── 2. Set up Node.js ────────────────────────────────────────────────────
       - name: Set up Node.js 20
         uses: actions/setup-node@v6
         with:
@@ -54,211 +30,74 @@ jobs:
           cache: 'npm'
           cache-dependency-path: cli/package-lock.json
 
-      - name: Cache node_modules
-        uses: actions/cache@v4
-        id: cache-node-modules
-        with:
-          path: cli/node_modules
-          key: ${{ runner.os }}-node20-cli-node-modules-${{ hashFiles('cli/package-lock.json') }}
-
       - name: Install CLI dependencies
-        if: steps.cache-node-modules.outputs.cache-hit != 'true'
         run: npm ci
         working-directory: cli
 
-      # ── 3. Build Windows CLI binary ─────────────────────────────────────────
-      - name: Cache built Windows CLI binary
-        uses: actions/cache@v4
-        id: cache-cli-binary
-        with:
-          path: cli/dist/oclaw-win-x64.exe
-          key: ${{ runner.os }}-cli-binary-win-x64-${{ hashFiles('cli/src/**/*', 'cli/package.json') }}
-
       - name: Build Windows CLI binary
-        if: steps.cache-cli-binary.outputs.cache-hit != 'true'
         run: npm run build:win
         working-directory: cli
 
-      - name: Smoke-test built binary
-        shell: pwsh
-        run: |
-          $ver = & .\cli\dist\oclaw-win-x64.exe --version 2>&1
-          Write-Host "Built oclaw version: $ver"
-          if (-not $ver) {
-            Write-Error "Binary did not return a version"
-            exit 1
-          }
-
-      # ── 4. Read CLI version from package.json ────────────────────────────────
-      - name: Read CLI version
-        id: cli_ver
-        shell: pwsh
-        run: |
-          $v = (Get-Content cli/package.json -Raw | ConvertFrom-Json).version
-          "version=$v" >> $env:GITHUB_OUTPUT
-          Write-Host "CLI version: $v"
-
-      # ── 5. Install built CLI binary directly ─────────────────────────────────
-      # Places the just-built binary into a dedicated bin directory so that all
-      # subsequent oclaw commands exercise the code under test.
       - name: Install built CLI binary
-        id: install_cli
         shell: pwsh
         env:
           OCLAW_BIN_DIR: ${{ runner.temp }}\oclaw-bin
         run: |
           New-Item -ItemType Directory -Path $env:OCLAW_BIN_DIR -Force | Out-Null
-          Copy-Item -Path 'cli\dist\oclaw-win-x64.exe' `
-                    -Destination (Join-Path $env:OCLAW_BIN_DIR 'oclaw.exe') -Force
+          Copy-Item -Path 'cli\dist\oclaw-win-x64.exe' -Destination (Join-Path $env:OCLAW_BIN_DIR 'oclaw.exe') -Force
+          & (Join-Path $env:OCLAW_BIN_DIR 'oclaw.exe') --version
 
-          $ver = & (Join-Path $env:OCLAW_BIN_DIR 'oclaw.exe') --version 2>&1
-          Write-Host "Installed oclaw version: $ver"
-          if (-not $ver) {
-            Write-Error "Installed binary did not return a version"
-            exit 1
-          }
-          Write-Host "oclaw.exe installed at: $env:OCLAW_BIN_DIR\oclaw.exe"
-          "bin_dir=$($env:OCLAW_BIN_DIR)" >> $env:GITHUB_OUTPUT
+      - name: Install pnpm
+        shell: pwsh
+        run: npm install -g pnpm
 
-      # ── 6. Install OpenClaw from real CDN ────────────────────────────────────
-      # Attempts to download the real OpenClaw package from the CDN.
-      # Windows packages (win32-x64) may not yet be available on the CDN; the
-      # step is marked continue-on-error so the rest of the job can still report
-      # status.  Once Windows packages are published this step will succeed.
-      - name: Install OpenClaw from real CDN
+      - name: Check status before install
+        shell: pwsh
+        env:
+          OCLAW_BIN_DIR: ${{ runner.temp }}\oclaw-bin
+        run: |
+          & (Join-Path $env:OCLAW_BIN_DIR 'oclaw.exe') status --check-updates --json
+
+      - name: Install OpenClaw via pnpm
         id: oclaw_install
         shell: pwsh
-        continue-on-error: true
         env:
           OCLAW_BIN_DIR: ${{ runner.temp }}\oclaw-bin
-          OCLAW_INSTALL_DIR: ${{ runner.temp }}\openclaw-app
         run: |
-          $oclawBin = Join-Path $env:OCLAW_BIN_DIR 'oclaw.exe'
-          Write-Host "Installing OpenClaw via real CDN into: $env:OCLAW_INSTALL_DIR"
-          & $oclawBin install --dir $env:OCLAW_INSTALL_DIR
-          if ($LASTEXITCODE -ne 0) {
-            Write-Warning "oclaw install exited with code $LASTEXITCODE"
-            exit $LASTEXITCODE
-          }
-          Write-Host "oclaw install completed successfully"
+          & (Join-Path $env:OCLAW_BIN_DIR 'oclaw.exe') install
 
-      # ── 7. Verify oclaw status (only if install succeeded) ──────────────────
-      - name: Verify oclaw status (after install)
+      - name: Verify status after install
         id: status_initial
-        if: steps.oclaw_install.outcome == 'success'
         shell: pwsh
         env:
           OCLAW_BIN_DIR: ${{ runner.temp }}\oclaw-bin
-          OCLAW_INSTALL_DIR: ${{ runner.temp }}\openclaw-app
         run: |
-          $oclawBin = Join-Path $env:OCLAW_BIN_DIR 'oclaw.exe'
-
-          $statusJson = (& $oclawBin status --json) | Out-String
-          Write-Host "oclaw status --json output:"
+          $statusJson = (& (Join-Path $env:OCLAW_BIN_DIR 'oclaw.exe') status --json) | Out-String
           Write-Host $statusJson
-
           $status = $statusJson | ConvertFrom-Json
-
-          if (-not $status.installed) {
-            Write-Error "oclaw status reports OpenClaw is NOT installed!"
-            exit 1
-          }
-          if (-not $status.installedVersion) {
-            Write-Error "installedVersion is empty after install"
-            exit 1
-          }
-
+          if (-not $status.installed) { Write-Error 'OpenClaw not installed'; exit 1 }
+          if (-not $status.installedVersion) { Write-Error 'installedVersion is empty'; exit 1 }
           "installed_version=$($status.installedVersion)" >> $env:GITHUB_OUTPUT
-          Write-Host "  OpenClaw $($status.installedVersion) is installed (real CDN package)"
 
-      # ── 8. Upgrade OpenClaw via real CDN (only if install succeeded) ─────────
-      - name: Upgrade OpenClaw via real CDN
+      - name: Upgrade OpenClaw via pnpm
         id: oclaw_upgrade
-        if: steps.oclaw_install.outcome == 'success'
-        shell: pwsh
-        continue-on-error: true
-        env:
-          OCLAW_BIN_DIR: ${{ runner.temp }}\oclaw-bin
-          OCLAW_INSTALL_DIR: ${{ runner.temp }}\openclaw-app
-        run: |
-          $oclawBin = Join-Path $env:OCLAW_BIN_DIR 'oclaw.exe'
-          Write-Host "Running oclaw upgrade against real CDN..."
-          & $oclawBin upgrade
-          if ($LASTEXITCODE -ne 0) {
-            Write-Warning "oclaw upgrade exited with code $LASTEXITCODE"
-            exit $LASTEXITCODE
-          }
-          Write-Host "oclaw upgrade completed successfully"
-
-      # ── 9. Verify oclaw status after upgrade ─────────────────────────────────
-      - name: Verify oclaw status (after upgrade)
-        if: steps.oclaw_install.outcome == 'success' && steps.oclaw_upgrade.outcome == 'success'
         shell: pwsh
         env:
           OCLAW_BIN_DIR: ${{ runner.temp }}\oclaw-bin
-          OCLAW_INSTALL_DIR: ${{ runner.temp }}\openclaw-app
-          PRE_UPGRADE_VERSION: ${{ steps.status_initial.outputs.installed_version }}
         run: |
-          $oclawBin = Join-Path $env:OCLAW_BIN_DIR 'oclaw.exe'
+          & (Join-Path $env:OCLAW_BIN_DIR 'oclaw.exe') upgrade
 
-          $statusJson = (& $oclawBin status --json) | Out-String
-          Write-Host "oclaw status --json output (after upgrade):"
+      - name: Verify status after upgrade
+        shell: pwsh
+        env:
+          OCLAW_BIN_DIR: ${{ runner.temp }}\oclaw-bin
+        run: |
+          $statusJson = (& (Join-Path $env:OCLAW_BIN_DIR 'oclaw.exe') status --json) | Out-String
           Write-Host $statusJson
-
           $status = $statusJson | ConvertFrom-Json
+          if (-not $status.installed) { Write-Error 'OpenClaw not installed after upgrade'; exit 1 }
+          if (-not $status.installedVersion) { Write-Error 'installedVersion is empty after upgrade'; exit 1 }
 
-          if (-not $status.installed) {
-            Write-Error "oclaw status reports OpenClaw is NOT installed after upgrade!"
-            exit 1
-          }
-          if (-not $status.installedVersion) {
-            Write-Error "installedVersion is empty after upgrade"
-            exit 1
-          }
-
-          Write-Host "  OpenClaw $($status.installedVersion) is installed after upgrade"
-          if ($status.installedVersion -eq $env:PRE_UPGRADE_VERSION) {
-            Write-Host "  Already on the latest version ($($status.installedVersion)) – upgrade had nothing to do"
-          } else {
-            Write-Host "  Upgraded from $env:PRE_UPGRADE_VERSION → $($status.installedVersion)"
-          }
-
-      # ── 10. Print final summary ──────────────────────────────────────────────
-      - name: Print test summary
-        if: always()
-        shell: pwsh
-        env:
-          CLI_VERSION:     ${{ steps.cli_ver.outputs.version }}
-          INSTALL_OUTCOME: ${{ steps.oclaw_install.outcome }}
-          UPGRADE_OUTCOME: ${{ steps.oclaw_upgrade.outcome }}
-        run: |
-          Write-Host ""
-          Write-Host "  ╔══════════════════════════════════════════════════╗"
-          Write-Host "  ║  Windows CLI real-CDN test results               ║"
-          Write-Host "  ╚══════════════════════════════════════════════════╝"
-          Write-Host ""
-          Write-Host "  oclaw CLI version : $env:CLI_VERSION  (built from source)"
-          Write-Host "  CDN               : https://oclaw.chatu.plus (real, no mocks)"
-          Write-Host ""
-          if ($env:INSTALL_OUTCOME -eq 'success') {
-            Write-Host "  ✔ oclaw install   : succeeded"
-          } else {
-            Write-Host "  ✗ oclaw install   : $env:INSTALL_OUTCOME"
-            Write-Host "    NOTE: Windows (win32-x64) packages may not yet be published"
-            Write-Host "    to the CDN. The install step will succeed automatically once"
-            Write-Host "    Windows packages are available."
-          }
-          if ($env:UPGRADE_OUTCOME -eq 'success') {
-            Write-Host "  ✔ oclaw upgrade   : succeeded"
-          } elseif ($env:UPGRADE_OUTCOME -eq 'skipped') {
-            Write-Host "  - oclaw upgrade   : skipped (install did not succeed)"
-          } else {
-            Write-Host "  ✗ oclaw upgrade   : $env:UPGRADE_OUTCOME"
-          }
-          Write-Host ""
-          Write-Host "  No mocked packages were used."
-
-      # ── 11. Upload install log on failure ────────────────────────────────────
       - name: Upload installation log on failure
         if: failure()
         uses: actions/upload-artifact@v7

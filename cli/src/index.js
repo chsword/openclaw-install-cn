@@ -18,7 +18,7 @@ const log = require('./lib/logger');
 
 program
   .name('oclaw')
-  .description('OpenClaw installer and updater for pnpm + npmmirror environments')
+  .description('OpenClaw assistant and updater for pnpm + npmmirror environments')
   .version(pkg.version, '-v, --version', 'display the oclaw CLI version')
   .option('--verbose', 'enable verbose/debug output', false);
 

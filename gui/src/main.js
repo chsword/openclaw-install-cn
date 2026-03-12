@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Electron main process for OpenClaw GUI installer.
+ * Electron main process for the OpenClaw GUI assistant.
  */
 
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
@@ -132,7 +132,7 @@ function createWindow() {
     width: 720,
     height: 520,
     resizable: false,
-    title: 'OpenClaw Installer',
+    title: 'OpenClaw 安装助手',
     icon: path.join(__dirname, '..', 'assets', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
