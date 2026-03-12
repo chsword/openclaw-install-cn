@@ -102,7 +102,7 @@ config options:
 
 ## GUI
 
-GUI 基于 Electron，提供图形化的环境检查、版本检查、安装和升级流程。
+GUI 基于 Tauri，提供图形化的环境检查、版本检查、安装和升级流程。
 
 主要能力：
 
@@ -121,6 +121,8 @@ cd gui
 npm install
 npm start
 ```
+
+说明：GUI 本地开发和打包依赖 Rust 工具链（Tauri）。
 
 ## CDN 与 manifest
 
@@ -169,6 +171,7 @@ npm test
 
 - Node.js >= 18
 - npm >= 8
+- Rust（用于 GUI/Tauri 开发与打包）
 - PowerShell >= 5.1（Windows）
 
 ## License

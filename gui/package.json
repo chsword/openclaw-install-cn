@@ -6,21 +6,20 @@
     "type": "git",
     "url": "https://github.com/chsword/openclaw-install-cn.git"
   },
-  "main": "src/main.js",
   "scripts": {
-    "start": "electron .",
+    "start": "tauri dev",
     "test": "node --test src/__tests__/config.test.js src/__tests__/platform.test.js src/__tests__/logger.test.js src/__tests__/registry.test.js src/__tests__/runtime.test.js",
-    "build": "electron-builder --win",
-    "build:win": "electron-builder --win",
-    "build:mac": "electron-builder --mac",
-    "build:linux": "electron-builder --linux",
-    "build:all": "electron-builder -mwl",
-    "pack": "electron-builder --dir"
+    "build": "npm run build:win",
+    "build:win": "tauri build --bundles nsis ; node scripts/collect-artifacts.js win",
+    "build:mac": "tauri build --bundles dmg ; node scripts/collect-artifacts.js mac",
+    "build:linux": "tauri build --bundles appimage ; node scripts/collect-artifacts.js linux",
+    "build:all": "npm run build:win ; npm run build:mac ; npm run build:linux",
+    "pack": "tauri build --debug"
   },
   "keywords": [
     "openclaw",
     "assistant",
-    "electron",
+    "tauri",
     "windows",
     "macos",
     "linux"
@@ -28,71 +27,6 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
-    "electron": "^41.0.0",
-    "electron-builder": "^26.8.1"
-  },
-  "build": {
-    "appId": "ai.openclaw.installer",
-    "productName": "OpenClaw Assistant",
-    "copyright": "Copyright © 2025",
-    "icon": "assets/icon.png",
-    "artifactName": "${name}-${version}-${platform}-${arch}.${ext}",
-    "win": {
-      "icon": "assets/icon.ico",
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "portable",
-          "arch": [
-            "x64"
-          ]
-        }
-      ]
-    },
-    "mac": {
-      "icon": "assets/icon.icns",
-      "category": "public.app-category.utilities",
-      "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        }
-      ]
-    },
-    "linux": {
-      "icon": "assets/icon.png",
-      "target": [
-        {
-          "target": "AppImage",
-          "arch": [
-            "x64"
-          ]
-        }
-      ]
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "artifactName": "${name}-setup-${version}-${arch}.${ext}"
-    },
-    "directories": {
-      "output": "dist",
-      "buildResources": "assets"
-    },
-    "files": [
-      "src/**/*",
-      "assets/**/*",
-      "!src/**/__tests__/**"
-    ]
+    "@tauri-apps/cli": "^2.2.5"
   }
 }

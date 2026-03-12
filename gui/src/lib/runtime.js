@@ -173,6 +173,33 @@ function getWindowsNodeCandidatePaths() {
   return [...new Set(candidates)];
 }
 
+function getWindowsNodeDirectoryCandidates(nodePath) {
+  const dirs = [];
+
+  if (nodePath) {
+    dirs.push(path.dirname(nodePath));
+  }
+
+  for (const candidate of getWindowsNodeCandidatePaths()) {
+    dirs.push(path.dirname(candidate));
+  }
+
+  return [...new Set(dirs.filter(Boolean))];
+}
+
+function getNodeBundledNpmCandidates(nodePath) {
+  const candidates = [];
+  const dirs = getWindowsNodeDirectoryCandidates(nodePath);
+
+  for (const dir of dirs) {
+    candidates.push(path.join(dir, 'npm.cmd'));
+    candidates.push(path.join(dir, 'npm.exe'));
+    candidates.push(path.join(dir, 'npm'));
+  }
+
+  return [...new Set(candidates)];
+}
+
 function getWindowsShimCandidatePaths(command) {
   const candidates = [];
 
@@ -323,7 +350,33 @@ async function installOpenclaw(options = {}) {
 }
 
 async function installPnpm(options = {}) {
-  return runCommand('npm', ['install', '-g', 'pnpm', `--registry=${PNPM_REGISTRY}`], options);
+  const args = ['install', '-g', 'pnpm', `--registry=${PNPM_REGISTRY}`];
+
+  try {
+    return await runCommand('npm', args, options);
+  } catch (primaryError) {
+    if (process.platform !== 'win32') {
+      throw primaryError;
+    }
+
+    const nodeInfo = await detectBinary('node', ['--version']);
+    const npmCandidates = getNodeBundledNpmCandidates(nodeInfo.path);
+
+    let fallbackError = primaryError;
+    for (const candidate of npmCandidates) {
+      if (!fs.existsSync(candidate)) {
+        continue;
+      }
+
+      try {
+        return await runCommand(candidate, args, options);
+      } catch (error) {
+        fallbackError = error;
+      }
+    }
+
+    throw fallbackError;
+  }
 }
 
 async function installNodejs(options = {}) {
@@ -358,6 +411,8 @@ module.exports = {
   parseOpenclawVersionFromPnpmList,
   getExecutableCandidates,
   getWindowsNodeCandidatePaths,
+  getWindowsNodeDirectoryCandidates,
+  getNodeBundledNpmCandidates,
   getWindowsShimCandidatePaths,
   getInstallCommandArgs,
   getInstallCommandString,

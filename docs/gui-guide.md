@@ -2,6 +2,8 @@
 
 本文档说明如何使用 OpenClaw 图形界面完成环境检查、安装、升级和日志查看。
 
+GUI 目前使用 Tauri（Rust + Web 前端）实现。
+
 ## 1. 获取 GUI
 
 推荐从 GitHub Releases 下载最新 GUI 安装包，也可以从源码运行：
@@ -12,6 +14,8 @@ cd openclaw-install-cn/gui
 npm install
 npm start
 ```
+
+本地运行 GUI 需要已安装 Rust 工具链。
 
 ## 2. 界面概览
 
