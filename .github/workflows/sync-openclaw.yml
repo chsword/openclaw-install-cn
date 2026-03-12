@@ -264,17 +264,18 @@ jobs:
             echo "  Normalized (deb→tar.gz): $(basename "$f") → ${CANON_LX_TGZ}"
             break
           done
-          # Linux .rpm package: wrap in tar.gz so CDN format is consistent.
+          # Linux .rpm package: normalize to a canonical .rpm filename for consistency,
+          # without wrapping it in a tar.gz (installer cannot handle nested .rpm files).
           # Handles both uppercase (OpenClaw-{V}*.rpm) and lowercase (openclaw[-_]{V}*.rpm).
           for f in upstream-assets/OpenClaw-${V}*.rpm \
                    upstream-assets/openclaw[-_]${V}*.rpm \
                    upstream-assets/openclaw[-_]*x86_64*.rpm \
                    upstream-assets/openclaw[-_]*amd64*.rpm; do
             [ -f "$f" ] || continue
-            CANON_LX_TGZ="openclaw-${V}-linux-x64.tar.gz"
-            [ -f "upstream-assets/${CANON_LX_TGZ}" ] && break  # already normalized
-            tar -czf "upstream-assets/${CANON_LX_TGZ}" -C upstream-assets "$(basename "$f")"
-            echo "  Normalized (rpm→tar.gz): $(basename "$f") → ${CANON_LX_TGZ}"
+            CANON_LX_RPM="openclaw-${V}-linux-x64.rpm"
+            [ -f "upstream-assets/${CANON_LX_RPM}" ] && break  # already normalized
+            cp "$f" "upstream-assets/${CANON_LX_RPM}"
+            echo "  Normalized (rpm): $(basename "$f") → ${CANON_LX_RPM}"
             break
           done
 
