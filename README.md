@@ -25,11 +25,7 @@
 
 - CLI、GUI 和引导脚本先检查 Node.js、pnpm、OpenClaw 当前版本
 - `cdn-template/manifest.json` 只记录 OpenClaw 最新版本号，供升级检查使用
-- 实际安装和升级统一执行以下命令
-
-```bash
-pnpm add -g openclaw@latest --registry=https://registry.npmmirror.com
-```
+- 实际安装和升级由助手自动执行，并统一使用中国大陆可访问的 npm 镜像源
 
 仓库中仍然发布 `oclaw` CLI、GUI 安装程序以及引导脚本，方便用户在中国大陆环境下完成环境检查和安装引导。
 

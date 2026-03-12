@@ -33,11 +33,7 @@ CLI、GUI 和引导脚本都会先检查：
 3. 当前是否已安装 OpenClaw
 4. 当前版本与最新版本是否存在差异
 
-实际安装与升级统一通过以下命令完成：
-
-```bash
-pnpm add -g openclaw@latest --registry=https://registry.npmmirror.com
-```
+实际安装与升级由安装助手自动执行，并统一使用 npmmirror 作为 npm 源。
 
 `manifest.json` 只用于标记当前最新的 OpenClaw 版本，不再承载平台包列表和校验和。
 

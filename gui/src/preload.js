@@ -14,6 +14,9 @@ contextBridge.exposeInMainWorld('oclaw', {
   /** @returns {Promise<{success, latest?, error?}>} */
   checkLatest: () => ipcRenderer.invoke('check-latest'),
 
+  /** @returns {Promise<{success, version?, supported?, error?, manualUrl?}>} */
+  installNodejs: () => ipcRenderer.invoke('install-nodejs'),
+
   /**
    * Install or upgrade OpenClaw via pnpm.
    * @param {Object} [opts] - { force? }

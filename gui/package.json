@@ -9,7 +9,7 @@
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
-    "test": "node --test src/__tests__/config.test.js src/__tests__/platform.test.js src/__tests__/logger.test.js src/__tests__/registry.test.js",
+    "test": "node --test src/__tests__/config.test.js src/__tests__/platform.test.js src/__tests__/logger.test.js src/__tests__/registry.test.js src/__tests__/runtime.test.js",
     "build": "electron-builder --win",
     "build:win": "electron-builder --win",
     "build:mac": "electron-builder --mac",

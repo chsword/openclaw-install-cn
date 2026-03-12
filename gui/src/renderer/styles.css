@@ -31,6 +31,7 @@ body {
   display: flex;
   flex-direction: column;
   user-select: none;
+  overflow: hidden;
 }
 
 /* ── Header ─────────────────────────────────────────────────────────────────── */
@@ -74,7 +75,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  overflow-y: auto;
+  overflow: hidden;
 }
 
 /* ── Card ────────────────────────────────────────────────────────────────────── */
@@ -114,12 +115,6 @@ body {
 .status-value.installed { color: var(--green); font-weight: 600; }
 .status-value.not-installed { color: var(--yellow); }
 .status-value.update-available { color: var(--yellow); font-weight: 600; }
-.status-value.command-value {
-  font-family: 'Consolas', 'Courier New', monospace;
-  font-size: 12px;
-  color: #9bd0ff;
-}
-
 .env-hint {
   margin-top: 14px;
   padding: 12px 14px;
@@ -135,6 +130,10 @@ body {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+#btn-install-node {
+  border-color: rgba(0, 136, 255, 0.4);
 }
 
 /* ── Buttons ─────────────────────────────────────────────────────────────────── */
@@ -205,7 +204,7 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   max-height: 160px;
-  overflow-y: auto;
+  overflow: hidden;
   padding: 6px;
   font-size: 12px;
   display: flex;

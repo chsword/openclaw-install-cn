@@ -217,7 +217,27 @@ ipcMain.handle('install', async (_event, opts = {}) => {
       throw new Error(`当前 Node.js 版本为 ${environment.node.version}，需要 18 或更高版本。`);
     }
     if (!environment.pnpm.installed) {
-      throw new Error('未检测到 pnpm。请先执行 npm install -g pnpm。');
+      send('status', { message: '未检测到 pnpm，正在自动安装…' });
+      await runtimeLib.installPnpm({
+        onStdout: (text) => {
+          const message = text.trim();
+          if (message) {
+            send('status', { message });
+          }
+        },
+        onStderr: (text) => {
+          const message = text.trim();
+          if (message) {
+            send('status', { message });
+          }
+        },
+      });
+
+      const refreshedForPnpm = await runtimeLib.inspectEnvironment();
+      if (!refreshedForPnpm.pnpm.installed) {
+        throw new Error('pnpm 自动安装完成后仍未检测到 pnpm，请检查 npm 全局目录与 PATH 设置。');
+      }
+      send('status', { message: `pnpm ${refreshedForPnpm.pnpm.version || ''} 安装完成。` });
     }
 
     send('status', { message: '读取 manifest.json 中的最新版本…' });
@@ -264,6 +284,31 @@ ipcMain.handle('install', async (_event, opts = {}) => {
   } catch (err) {
     send('status', { message: `Error: ${err.message}` });
     return { success: false, error: err.message };
+  }
+});
+
+/** Install Node.js for current platform (best effort). */
+ipcMain.handle('install-nodejs', async () => {
+  try {
+    await runtimeLib.installNodejs();
+    const refreshed = await runtimeLib.inspectEnvironment();
+    if (!refreshed.node.installed) {
+      return {
+        success: false,
+        error: `自动安装完成后仍未检测到 Node.js。请手动安装：${runtimeLib.NODEJS_DOWNLOAD_URL}`,
+      };
+    }
+    return {
+      success: true,
+      version: refreshed.node.version,
+      supported: refreshed.node.supported,
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error: err.message,
+      manualUrl: runtimeLib.NODEJS_DOWNLOAD_URL,
+    };
   }
 });
 

@@ -5,10 +5,10 @@ const elInstalledVersion = document.getElementById('val-installed-version');
 const elLatestVersion    = document.getElementById('val-latest-version');
 const elNodeVersion      = document.getElementById('val-node-version');
 const elPnpmVersion      = document.getElementById('val-pnpm-version');
-const elInstallCommand   = document.getElementById('val-install-command');
 const elPlatform         = document.getElementById('val-platform');
 const envHint            = document.getElementById('env-hint');
 
+const btnInstallNode     = document.getElementById('btn-install-node');
 const btnInstall         = document.getElementById('btn-install');
 const btnCheck           = document.getElementById('btn-check');
 const btnSettings        = document.getElementById('btn-settings');
@@ -51,6 +51,7 @@ function hideMessage() {
 
 function setButtonsBusy(isBusy) {
   busy = isBusy;
+  btnInstallNode.disabled = isBusy;
   btnInstall.disabled = isBusy;
   btnCheck.disabled   = isBusy;
 }
@@ -74,7 +75,6 @@ async function loadStatus() {
     currentStatus = await window.oclaw.getStatus();
 
     elPlatform.textContent = `${currentStatus.platform} (${currentStatus.arch})`;
-    elInstallCommand.textContent = currentStatus.installCommand;
 
     if (currentStatus.node.installed) {
       setValue(elNodeVersion, currentStatus.node.version, currentStatus.node.supported ? 'ready' : 'update-available');
@@ -98,22 +98,51 @@ async function loadStatus() {
 
     const missingNode = !currentStatus.node.installed || !currentStatus.node.supported;
     const missingPnpm = !currentStatus.pnpm.installed;
+    btnInstallNode.style.display = missingNode ? '' : 'none';
     btnInstall.disabled = missingNode || missingPnpm || busy;
 
     if (missingNode) {
       envHint.textContent = currentStatus.node.installed
-        ? `当前 Node.js 版本 ${currentStatus.node.version} 过低，至少需要 18。`
-        : '请先安装 Node.js 18 或更高版本，然后再执行安装。';
+        ? `当前 Node.js 版本 ${currentStatus.node.version} 过低，至少需要 18。可点击“安装 Node.js”自动安装 LTS 版本。`
+        : '未检测到 Node.js。可点击“安装 Node.js”自动安装 LTS 版本。';
     } else if (missingPnpm) {
-      envHint.textContent = '未检测到 pnpm。请先执行 npm install -g pnpm。';
+      envHint.textContent = '未检测到 pnpm。安装/升级时会自动通过 npm（npmmirror）安装 pnpm。';
     } else if (currentStatus.installed && currentStatus.installedVersion) {
       envHint.textContent = '环境检查已通过，可以直接检查更新或执行升级。';
     } else {
-      envHint.textContent = '环境检查已通过，可以直接执行 pnpm 全局安装。';
+      envHint.textContent = '环境检查已通过，可以直接执行安装。';
     }
   } catch (err) {
     showMessage(`读取状态失败: ${err.message}`, 'error');
   }
+}
+
+async function doInstallNodejs() {
+  if (busy) return;
+  setButtonsBusy(true);
+  hideMessage();
+
+  cardProgress.style.display = 'block';
+  progressBar.style.width = '60%';
+  progressPct.textContent = '执行中';
+  progressStatus.textContent = '正在安装 Node.js LTS…';
+
+  const result = await window.oclaw.installNodejs();
+  if (result.success) {
+    progressBar.style.width = '100%';
+    progressBar.style.background = 'linear-gradient(90deg, #0066cc, #0088ff)';
+    progressPct.textContent = '完成';
+    showMessage(`Node.js ${result.version || ''} 安装成功。`, 'success');
+    await loadStatus();
+  } else {
+    progressBar.style.width = '100%';
+    progressBar.style.background = 'linear-gradient(90deg, #ef4444, #f97316)';
+    progressPct.textContent = '失败';
+    const manualTip = result.manualUrl ? ` 可改为手动安装: ${result.manualUrl}` : '';
+    showMessage(`Node.js 安装失败: ${result.error}.${manualTip}`, 'error');
+  }
+
+  setButtonsBusy(false);
 }
 
 /* ── Check for updates ─────────────────────────────────────────────────────── */
@@ -302,6 +331,7 @@ async function doClearLogs() {
 
 /* ── Event listeners ───────────────────────────────────────────────────────── */
 btnInstall.addEventListener('click', doInstall);
+btnInstallNode.addEventListener('click', doInstallNodejs);
 btnCheck.addEventListener('click', async () => {
   setButtonsBusy(true);
   hideMessage();

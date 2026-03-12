@@ -52,18 +52,15 @@
           <span class="status-label">系统平台</span>
           <span class="status-value" id="val-platform">–</span>
         </div>
-        <div class="status-row">
-          <span class="status-label">安装命令</span>
-          <span class="status-value command-value" id="val-install-command">–</span>
-        </div>
       </div>
       <div class="env-hint" id="env-hint">
-        GUI 会先检查 Node.js、pnpm 与当前 OpenClaw 版本，再执行全局安装命令。
+        GUI 会先检查 Node.js、pnpm 与当前 OpenClaw 版本，再自动完成安装或升级流程。
       </div>
     </section>
 
     <!-- Action buttons -->
     <section class="actions">
+      <button class="btn btn-secondary" id="btn-install-node" style="display:none">安装 Node.js</button>
       <button class="btn btn-primary" id="btn-install">安装 / 升级</button>
       <button class="btn btn-secondary" id="btn-check">检查更新</button>
       <button class="btn btn-ghost" id="btn-settings">查看日志</button>
@@ -108,7 +105,7 @@
 
   <!-- Footer -->
   <footer class="footer">
-    <span>OpenClaw Assistant · 使用 pnpm add -g openclaw@latest --registry=https://registry.npmmirror.com</span>
+    <span>OpenClaw Assistant · 自动检查环境并完成安装</span>
   </footer>
 
   <script src="app.js"></script>
