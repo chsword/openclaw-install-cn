@@ -22,6 +22,12 @@ on:
       - 'docs/**'
       - 'cdn-template/**'
 
+# Cancel any in-progress run for the same workflow + ref combination.
+# This prevents redundant runs when commits are pushed in rapid succession.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # ── CLI Tests ──────────────────────────────────────────────────────────────
   # On PRs: run only ubuntu-latest + node 20 to keep CI fast.
@@ -29,6 +35,7 @@ jobs:
   test-cli:
     name: Test CLI (${{ matrix.os }}, node${{ matrix.node }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     permissions:
       contents: read
     strategy:
@@ -69,6 +76,7 @@ jobs:
   lint-cli:
     name: Lint CLI (node${{ matrix.node }})
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     strategy:
@@ -106,6 +114,7 @@ jobs:
     name: Build CLI (Linux, node${{ matrix.node }})
     needs: test-cli
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
     strategy:
@@ -140,6 +149,7 @@ jobs:
   test-bootstrap-scripts:
     name: Bootstrap script checks
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -175,6 +185,7 @@ jobs:
   test-gui:
     name: Test GUI (${{ matrix.os }}, node${{ matrix.node }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     permissions:
       contents: read
     strategy:
@@ -200,6 +211,7 @@ jobs:
   audit:
     name: Security audit (npm audit)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -234,6 +246,7 @@ jobs:
     needs: [test-cli, lint-cli, build-check-cli, test-bootstrap-scripts, test-gui, audit]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:
