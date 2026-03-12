@@ -627,52 +627,52 @@ jobs:
                       else:
                           print(f'  OK  checksum for {plat}: {cs[:16]}...')
 
-            # 3. Verify the selected platform files exist in each per-platform bundle
-            print('\n=== Checking per-platform bundle contents ===')
-            for plat in platforms:
+          # 3. Verify the selected platform files exist in each per-platform bundle
+          print('\n=== Checking per-platform bundle contents ===')
+          for plat in platforms:
               base = f'openclaw-bundle-{plat}'
               required = {
-                'win32-x64': [
-                  'manifest.json',
-                  'install.sh',
-                  'install.ps1',
-                  'oclaw/oclaw-win-x64.exe',
-                  f'{oc_ver}/openclaw-{oc_ver}-win32-x64.zip',
-                  f'gui/openclaw-gui-setup-{cli_ver}-x64.exe',
-                  f'gui/openclaw-gui-{cli_ver}-win32-x64.exe',
-                ],
-                'darwin-x64': [
-                  'manifest.json',
-                  'install.sh',
-                  'install.ps1',
-                  'oclaw/oclaw-darwin-x64',
-                  f'{oc_ver}/openclaw-{oc_ver}-darwin-x64.tar.gz',
-                  f'gui/openclaw-gui-{cli_ver}-darwin-x64.dmg',
-                ],
-                'darwin-arm64': [
-                  'manifest.json',
-                  'install.sh',
-                  'install.ps1',
-                  'oclaw/oclaw-darwin-arm64',
-                  f'{oc_ver}/openclaw-{oc_ver}-darwin-arm64.tar.gz',
-                  f'gui/openclaw-gui-{cli_ver}-darwin-arm64.dmg',
-                ],
-                'linux-x64': [
-                  'manifest.json',
-                  'install.sh',
-                  'install.ps1',
-                  'oclaw/oclaw-linux-x64',
-                  f'{oc_ver}/openclaw-{oc_ver}-linux-x64.tar.gz',
-                  f'gui/openclaw-gui-{cli_ver}-linux-x86_64.AppImage',
-                ],
+                  'win32-x64': [
+                      'manifest.json',
+                      'install.sh',
+                      'install.ps1',
+                      'oclaw/oclaw-win-x64.exe',
+                      f'{oc_ver}/openclaw-{oc_ver}-win32-x64.zip',
+                      f'gui/openclaw-gui-setup-{cli_ver}-x64.exe',
+                      f'gui/openclaw-gui-{cli_ver}-win32-x64.exe',
+                  ],
+                  'darwin-x64': [
+                      'manifest.json',
+                      'install.sh',
+                      'install.ps1',
+                      'oclaw/oclaw-darwin-x64',
+                      f'{oc_ver}/openclaw-{oc_ver}-darwin-x64.tar.gz',
+                      f'gui/openclaw-gui-{cli_ver}-darwin-x64.dmg',
+                  ],
+                  'darwin-arm64': [
+                      'manifest.json',
+                      'install.sh',
+                      'install.ps1',
+                      'oclaw/oclaw-darwin-arm64',
+                      f'{oc_ver}/openclaw-{oc_ver}-darwin-arm64.tar.gz',
+                      f'gui/openclaw-gui-{cli_ver}-darwin-arm64.dmg',
+                  ],
+                  'linux-x64': [
+                      'manifest.json',
+                      'install.sh',
+                      'install.ps1',
+                      'oclaw/oclaw-linux-x64',
+                      f'{oc_ver}/openclaw-{oc_ver}-linux-x64.tar.gz',
+                      f'gui/openclaw-gui-{cli_ver}-linux-x86_64.AppImage',
+                  ],
               }[plat]
 
               for rel in required:
-                path = os.path.join(base, rel)
-                if not os.path.exists(path):
-                  errors.append(f'MISSING: {path}')
-                else:
-                  print(f'  OK  {path}')
+                  path = os.path.join(base, rel)
+                  if not os.path.exists(path):
+                      errors.append(f'MISSING: {path}')
+                  else:
+                      print(f'  OK  {path}')
 
           # Summary
           if errors:
@@ -693,7 +693,7 @@ jobs:
           import sys
 
           cli_ver = os.environ['CLI_VERSION']
-            base = os.path.join('openclaw-bundle', 'gui')
+          base = os.path.join('openclaw-bundle', 'gui')
           expected = [
               f'openclaw-gui-setup-{cli_ver}-x64.exe',
               f'openclaw-gui-{cli_ver}-win32-x64.exe',
