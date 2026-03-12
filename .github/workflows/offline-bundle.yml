@@ -9,6 +9,7 @@ name: Build Offline Bundle
 #     cli/{cli-ver}/oclaw-{cli-ver}-{os}-{arch}.{ext}
 #     manifest.json
 #     pkg/{openclaw-ver}/openclaw-{openclaw-ver}-{os}-{arch}.{ext}
+#     gui/{installer-ver}/openclaw-gui-* 
 #     install.sh           ← convenience copy of the bootstrap script
 #     install.ps1          ← convenience copy of the bootstrap script
 #
@@ -22,32 +23,32 @@ name: Build Offline Bundle
 #
 # Triggered by:
 #   1. workflow_dispatch – manual run with optional version overrides
-#   2. workflow_run      – auto-runs after a successful release.yml run
+#   2. workflow_run      – auto-runs after a successful release.yml or sync-openclaw.yml run
 #
 # OpenClaw version source:
-#   When no openclaw_version override is given, the latest release is fetched
-#   directly from the official openclaw/openclaw GitHub releases API, so the
-#   offline bundle always reflects the most recent upstream release.
+#   When no openclaw_version override is given, the latest version tracked by
+#   sync-openclaw.yml (cdn-template/manifest.json) is used, and the matching
+#   upstream package is then fetched directly from openclaw/openclaw.
 on:
   workflow_dispatch:
     inputs:
       cli_version:
         description: >
-          CLI version to bundle (e.g. "1.2.3").
-          Leave empty to use the version in cli/package.json.
+          Installer version to bundle for CLI and GUI (e.g. "1.2.3").
+          Leave empty to auto-detect the latest installer version track.
         required: false
         default: ''
       openclaw_version:
         description: >
           OpenClaw version to bundle (e.g. "2026.3.8").
-          Leave empty to auto-detect the latest release from openclaw/openclaw.
+          Leave empty to use the latest version tracked by sync-openclaw.
         required: false
         default: ''
   schedule:
     # Weekly build every Sunday at 02:00 UTC - ensures the pipeline stays healthy.
     - cron: '0 2 * * 0'
   workflow_run:
-    workflows: ['Release']
+    workflows: ['Release', 'Sync OpenClaw Upstream Release']
     types: [completed]
 
 permissions:
@@ -68,6 +69,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js 18 (matches pkg targets)
         uses: actions/setup-node@v6
@@ -94,28 +97,70 @@ jobs:
 
       - name: Determine CLI version
         id: ver
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ -n "${{ inputs.cli_version }}" ]; then
             VERSION="${{ inputs.cli_version }}"
+            VERSION="${VERSION#v}"
           else
-            # Use the latest published GitHub release version so the bundle
-            # always reflects the latest released CLI, regardless of what is
-            # currently checked out in package.json.
-            LATEST=$(curl -fsSL \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/${{ github.repository }}/releases/latest" \
-              | python3 -c "import sys,json; d=json.load(sys.stdin); t=d.get('tag_name',''); print(t.lstrip('v') if t else '')" \
-              2>/dev/null) || LATEST=""
-            if [ -n "$LATEST" ]; then
-              VERSION="$LATEST"
-            else
-              echo "::warning::Could not fetch latest release version from GitHub API; falling back to package.json."
-              # Fallback to package.json if no release has been published yet.
-              VERSION=$(node -p "require('./cli/package.json').version")
-            fi
+            VERSION=$(python3 - <<'PYEOF'
+          import json
+          import re
+          import subprocess
+          from pathlib import Path
+
+          stable_re = re.compile(r'^v?(\d+)\.(\d+)\.(\d+)$')
+
+          def normalize(version):
+              version = str(version).strip()
+              return version[1:] if version.startswith('v') else version
+
+          def stable_key(version):
+              match = stable_re.fullmatch(str(version).strip())
+              if not match:
+                  return None
+              return tuple(int(part) for part in match.groups())
+
+          candidates = []
+
+          try:
+              tag_output = subprocess.check_output(
+                  ['git', 'tag', '--list', 'v*'],
+                  text=True,
+                  stderr=subprocess.DEVNULL,
+              )
+              for raw_tag in tag_output.splitlines():
+                  tag = raw_tag.strip()
+                  key = stable_key(tag)
+                  if key:
+                      candidates.append((key, normalize(tag)))
+          except subprocess.CalledProcessError:
+              pass
+
+          for path_str, field in [
+              ('cli/package.json', 'version'),
+              ('gui/package.json', 'version'),
+              ('cdn-template/cli-manifest.json', 'latest'),
+          ]:
+              path = Path(path_str)
+              if not path.exists():
+                  continue
+              try:
+                  with path.open('r', encoding='utf-8') as fh:
+                      data = json.load(fh)
+                  version = str(data.get(field, '')).strip()
+              except Exception:
+                  continue
+              key = stable_key(version)
+              if key:
+                  candidates.append((key, normalize(version)))
+
+          if not candidates:
+              print('0.0.0')
+          else:
+              candidates.sort(key=lambda item: item[0])
+              print(candidates[-1][1])
+          PYEOF
+            )
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "CLI version: $VERSION"
@@ -197,7 +242,92 @@ jobs:
           path: cli-packages/
           retention-days: 1
 
-  # ── 2. Download OpenClaw upstream packages ─────────────────────────────────
+  # ── 2. Build GUI installers ────────────────────────────────────────────────
+  build-gui:
+    name: Build ${{ matrix.name }} GUI
+    needs: build-cli
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: Windows
+            electron_cache: ~/AppData/Local/electron/Cache
+            build_cmd: build:win
+            artifact_name: offline-gui-win
+            artifact_path: gui/dist/**/*.exe
+          - os: macos-latest
+            name: macOS
+            electron_cache: ~/Library/Caches/electron
+            build_cmd: build:mac
+            artifact_name: offline-gui-mac
+            artifact_path: gui/dist/*.dmg
+          - os: ubuntu-latest
+            name: Linux
+            electron_cache: ~/.cache/electron
+            build_cmd: build:linux
+            artifact_name: offline-gui-linux
+            artifact_path: gui/dist/*.AppImage
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+
+      - name: Cache Electron
+        uses: actions/cache@v4
+        with:
+          path: ${{ matrix.electron_cache }}
+          key: ${{ runner.os }}-electron-${{ hashFiles('gui/package.json') }}
+
+      - name: Cache GUI node_modules
+        uses: actions/cache@v4
+        id: cache-gui-node-modules
+        with:
+          path: gui/node_modules
+          key: ${{ runner.os }}-node20-gui-node-modules-${{ hashFiles('gui/package.json') }}
+
+      - name: Set installer version
+        id: ver
+        shell: bash
+        run: |
+          VERSION="${{ needs.build-cli.outputs.cli_version }}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Update GUI version in package.json
+        shell: bash
+        run: |
+          cd gui
+          npm version "${{ steps.ver.outputs.version }}" --no-git-tag-version --allow-same-version
+        continue-on-error: true
+
+      - name: Generate placeholder icons
+        run: node scripts/gen-icons.js
+
+      - name: Install GUI dependencies
+        if: steps.cache-gui-node-modules.outputs.cache-hit != 'true'
+        run: npm install
+        working-directory: gui
+
+      - name: Build GUI
+        run: npm run ${{ matrix.build_cmd }}
+        working-directory: gui
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Upload GUI artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_path }}
+          retention-days: 1
+
+  # ── 3. Download OpenClaw upstream packages ─────────────────────────────────
   download-openclaw:
     name: Download OpenClaw packages
     if: >
@@ -220,23 +350,38 @@ jobs:
             VERSION="${{ inputs.openclaw_version }}"
             VERSION="${VERSION#v}"
           else
-            # Fetch the latest release directly from openclaw/openclaw on GitHub.
-            TAG=$(curl -fsSL \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/openclaw/openclaw/releases/latest" \
-              | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-tag = d.get('tag_name', '')
-if not tag:
-    sys.exit('ERROR: GitHub API response has no tag_name – check openclaw/openclaw releases.')
-print(tag)
-")
-            VERSION="${TAG#v}"
-            [ -z "$VERSION" ] && { echo "ERROR: Failed to detect OpenClaw version from GitHub API"; exit 1; }
+            VERSION=$(python3 - <<'PYEOF'
+          import json
+          from pathlib import Path
+
+          manifest_path = Path('cdn-template/manifest.json')
+          if manifest_path.exists():
+              try:
+                  with manifest_path.open('r', encoding='utf-8') as fh:
+                      manifest = json.load(fh)
+                  latest = str(manifest.get('latest', '')).strip()
+                  if latest:
+                      print(latest)
+                      raise SystemExit(0)
+              except Exception:
+                  pass
+          print('')
+          PYEOF
+            )
+
+            if [ -z "$VERSION" ]; then
+              echo "::warning::cdn-template/manifest.json does not contain a latest version; falling back to official latest release."
+              TAG=$(curl -fsSL \
+                -H "Authorization: Bearer ${GH_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/repos/openclaw/openclaw/releases/latest" \
+                | python3 -c "import sys,json; d=json.load(sys.stdin); tag=d.get('tag_name',''); sys.exit('ERROR: GitHub API response has no tag_name – check openclaw/openclaw releases.') if not tag else None; print(tag)" )
+              VERSION="${TAG#v}"
+            fi
           fi
+          TAG="v${VERSION}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "OpenClaw version: $VERSION"
 
       - name: Cache upstream OpenClaw assets
@@ -250,7 +395,7 @@ print(tag)
         if: steps.cache-openclaw-assets.outputs.cache-hit != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG:      v${{ steps.detect.outputs.version }}
+          TAG:      ${{ steps.detect.outputs.tag }}
         run: |
           mkdir -p upstream-assets openclaw-packages
 
@@ -446,10 +591,10 @@ print(tag)
           path: openclaw-packages/
           retention-days: 1
 
-  # ── 3. Assemble and publish the offline bundle ──────────────────────────────
+  # ── 4. Assemble and publish the offline bundle ──────────────────────────────
   assemble-bundle:
     name: Assemble and publish offline bundle
-    needs: [build-cli, download-openclaw]
+    needs: [build-cli, build-gui, download-openclaw]
     runs-on: ubuntu-latest
 
     steps:
@@ -467,6 +612,24 @@ print(tag)
           name: offline-openclaw-packages
           path: openclaw-packages/
 
+      - name: Download Windows GUI artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: offline-gui-win
+          path: artifacts/gui/win/
+
+      - name: Download macOS GUI artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: offline-gui-mac
+          path: artifacts/gui/mac/
+
+      - name: Download Linux GUI artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: offline-gui-linux
+          path: artifacts/gui/linux/
+
       - name: Assemble full offline bundle directory
         env:
           CLI_VERSION:      ${{ needs.build-cli.outputs.cli_version }}
@@ -476,7 +639,7 @@ print(tag)
           OC_VER="$OPENCLAW_VERSION"
           BUNDLE="openclaw-bundle"
 
-          mkdir -p "$BUNDLE/cli/${CLI_VER}" "$BUNDLE/pkg/${OC_VER}"
+          mkdir -p "$BUNDLE/cli/${CLI_VER}" "$BUNDLE/pkg/${OC_VER}" "$BUNDLE/gui/${CLI_VER}"
 
           # CLI manifest and packages
           cp cli-packages/cli-manifest.json "$BUNDLE/cli-manifest.json"
@@ -488,6 +651,11 @@ print(tag)
           cp openclaw-packages/manifest.json "$BUNDLE/manifest.json"
           for f in openclaw-packages/openclaw-*.zip openclaw-packages/openclaw-*.tar.gz; do
             [ -f "$f" ] && cp "$f" "$BUNDLE/pkg/${OC_VER}/"
+          done
+
+          # GUI installers
+          find artifacts/gui/ -type f \( -name "*.exe" -o -name "*.dmg" -o -name "*.AppImage" \) ! -path "*/win-unpacked/*" | while read -r f; do
+            cp "$f" "$BUNDLE/gui/${CLI_VER}/"
           done
 
           # Bootstrap scripts (convenience copies so users can install from within the bundle)
@@ -507,7 +675,7 @@ print(tag)
 
           for plat in win32-x64 darwin-x64 darwin-arm64 linux-x64; do
             PLAT_BUNDLE="openclaw-bundle-${plat}"
-            mkdir -p "$PLAT_BUNDLE/cli/${CLI_VER}" "$PLAT_BUNDLE/pkg/${OC_VER}"
+            mkdir -p "$PLAT_BUNDLE/cli/${CLI_VER}" "$PLAT_BUNDLE/pkg/${OC_VER}" "$PLAT_BUNDLE/gui/${CLI_VER}"
 
             # Shared files
             cp openclaw-bundle/cli-manifest.json "$PLAT_BUNDLE/"
@@ -536,6 +704,33 @@ print(tag)
             src="openclaw-bundle/pkg/${OC_VER}/${oc_pkg}"
             [ -f "$src" ] && cp "$src" "$PLAT_BUNDLE/pkg/${OC_VER}/" \
               || echo "WARNING: OpenClaw package not found: $src"
+
+            # Platform-specific GUI installer(s)
+            case "$plat" in
+              win32-x64)
+                for gui_src in \
+                  "openclaw-bundle/gui/${CLI_VER}/openclaw-gui-setup-${CLI_VER}-x64.exe" \
+                  "openclaw-bundle/gui/${CLI_VER}/openclaw-gui-${CLI_VER}-win-x64.exe"; do
+                  [ -f "$gui_src" ] && cp "$gui_src" "$PLAT_BUNDLE/gui/${CLI_VER}/" \
+                    || echo "WARNING: GUI installer not found: $gui_src"
+                done
+                ;;
+              darwin-x64)
+                gui_src="openclaw-bundle/gui/${CLI_VER}/openclaw-gui-${CLI_VER}-mac-x64.dmg"
+                [ -f "$gui_src" ] && cp "$gui_src" "$PLAT_BUNDLE/gui/${CLI_VER}/" \
+                  || echo "WARNING: GUI installer not found: $gui_src"
+                ;;
+              darwin-arm64)
+                gui_src="openclaw-bundle/gui/${CLI_VER}/openclaw-gui-${CLI_VER}-mac-arm64.dmg"
+                [ -f "$gui_src" ] && cp "$gui_src" "$PLAT_BUNDLE/gui/${CLI_VER}/" \
+                  || echo "WARNING: GUI installer not found: $gui_src"
+                ;;
+              linux-x64)
+                gui_src="openclaw-bundle/gui/${CLI_VER}/openclaw-gui-${CLI_VER}-linux-x64.AppImage"
+                [ -f "$gui_src" ] && cp "$gui_src" "$PLAT_BUNDLE/gui/${CLI_VER}/" \
+                  || echo "WARNING: GUI installer not found: $gui_src"
+                ;;
+            esac
 
             echo "=== $plat bundle ==="
             find "$PLAT_BUNDLE" -type f | sort
@@ -655,6 +850,34 @@ print(tag)
               print('\n=== Bundle validation PASSED ===')
           PYEOF
 
+      - name: Validate bundled GUI installers
+        env:
+          CLI_VERSION: ${{ needs.build-cli.outputs.cli_version }}
+        run: |
+          python3 - <<'PYEOF'
+          import os
+          import sys
+
+          cli_ver = os.environ['CLI_VERSION']
+          base = os.path.join('openclaw-bundle', 'gui', cli_ver)
+          expected = [
+              f'openclaw-gui-setup-{cli_ver}-x64.exe',
+              f'openclaw-gui-{cli_ver}-win-x64.exe',
+              f'openclaw-gui-{cli_ver}-mac-x64.dmg',
+              f'openclaw-gui-{cli_ver}-mac-arm64.dmg',
+              f'openclaw-gui-{cli_ver}-linux-x64.AppImage',
+          ]
+
+          missing = [name for name in expected if not os.path.exists(os.path.join(base, name))]
+          if missing:
+              print('Missing GUI installers from offline bundle:')
+              for name in missing:
+                  print(f'  - {name}')
+              sys.exit(1)
+
+          print('All expected GUI installers are present in the offline bundle.')
+          PYEOF
+
       - name: Create GitHub Release with offline bundles
         uses: softprops/action-gh-release@v2.5.0
         with:
@@ -670,6 +893,7 @@ print(tag)
             | 组件 | 版本 |
             |------|------|
             | oclaw CLI（安装工具）| `${{ needs.build-cli.outputs.cli_version }}` |
+            | OpenClaw GUI（图形安装器）| `${{ needs.build-cli.outputs.cli_version }}` |
             | OpenClaw（主程序）| `${{ needs.download-openclaw.outputs.openclaw_version }}` |
 
             ### 📥 下载说明
@@ -686,7 +910,11 @@ print(tag)
 
             ### 🚀 安装步骤
 
-            > ⚠️ **前提：** 离线模式下仍需预先安装 [Node.js](https://nodejs.org/) >= 18。
+            > ⚠️ **前提：** 使用脚本离线安装时，仍需预先安装 [Node.js](https://nodejs.org/) >= 18。
+
+            每个离线包同时包含：
+            - 可直接运行的 GUI 安装器
+            - 可供 `install.sh` / `install.ps1` 使用的本地离线 bundle 目录
 
             **macOS / Linux：**
             ```bash
