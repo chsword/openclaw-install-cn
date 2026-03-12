@@ -260,10 +260,19 @@ jobs:
           # CLI packages only – go to cli/{installer-ver}/ on CDN.
           # OpenClaw app packages ({openclaw-ver}/openclaw-*) are handled
           # independently by sync-openclaw.yml.
-          (cd artifacts/cli && zip "$OLDPWD/cdn-packages/oclaw-${VERSION}-win32-x64.zip" oclaw-win-x64.exe)
-          (cd artifacts/cli && tar -czf "$OLDPWD/cdn-packages/oclaw-${VERSION}-darwin-x64.tar.gz" oclaw-darwin-x64)
-          (cd artifacts/cli && tar -czf "$OLDPWD/cdn-packages/oclaw-${VERSION}-darwin-arm64.tar.gz" oclaw-darwin-arm64)
-          (cd artifacts/cli && tar -czf "$OLDPWD/cdn-packages/oclaw-${VERSION}-linux-x64.tar.gz" oclaw-linux-x64)
+          # Rename binaries to the canonical names expected by the bootstrap
+          # installers (install.ps1 looks for oclaw.exe; install.sh looks for oclaw).
+          cp artifacts/cli/oclaw-win-x64.exe    artifacts/cli/oclaw.exe
+          (cd artifacts/cli && zip "$OLDPWD/cdn-packages/oclaw-${VERSION}-win32-x64.zip" oclaw.exe)
+
+          cp artifacts/cli/oclaw-darwin-x64     artifacts/cli/oclaw
+          (cd artifacts/cli && tar -czf "$OLDPWD/cdn-packages/oclaw-${VERSION}-darwin-x64.tar.gz" oclaw)
+
+          cp artifacts/cli/oclaw-darwin-arm64   artifacts/cli/oclaw
+          (cd artifacts/cli && tar -czf "$OLDPWD/cdn-packages/oclaw-${VERSION}-darwin-arm64.tar.gz" oclaw)
+
+          cp artifacts/cli/oclaw-linux-x64      artifacts/cli/oclaw
+          (cd artifacts/cli && tar -czf "$OLDPWD/cdn-packages/oclaw-${VERSION}-linux-x64.tar.gz" oclaw)
 
           echo "CDN packages created:"
           ls -lh cdn-packages/ || echo "(no packages created)"
