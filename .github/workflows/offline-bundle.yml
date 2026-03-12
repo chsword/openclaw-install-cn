@@ -9,9 +9,21 @@ name: Build Offline Bundle
 #     cli/{cli-ver}/oclaw-{cli-ver}-{os}-{arch}.{ext}
 #     manifest.json
 #     pkg/{openclaw-ver}/openclaw-{openclaw-ver}-{os}-{arch}.{ext}
-#     gui/{installer-ver}/openclaw-gui-* 
+#     gui/{installer-ver}/openclaw-gui-*
 #     install.sh           ← convenience copy of the bootstrap script
 #     install.ps1          ← convenience copy of the bootstrap script
+#
+# Asset sources in this workflow:
+#   1. Current repository GitHub Release:
+#      - CLI binaries
+#      - GUI installers
+#      - install.sh / install.ps1
+#   2. openclaw/openclaw official GitHub Release:
+#      - OpenClaw application packages
+#   3. Workflow-generated metadata:
+#      - cli-manifest.json
+#      - manifest.json
+#      - final offline bundle zip files and checksums
 #
 # Usage after extracting the downloaded zip:
 #   macOS / Linux:
@@ -23,19 +35,19 @@ name: Build Offline Bundle
 #
 # Triggered by:
 #   1. workflow_dispatch – manual run with optional version overrides
-#   2. workflow_run      – auto-runs after a successful release.yml or sync-openclaw.yml run
+#   2. workflow_run      – auto-runs after a successful installer release or sync-openclaw sync
 #
-# OpenClaw version source:
-#   When no openclaw_version override is given, the latest version tracked by
-#   sync-openclaw.yml (cdn-template/manifest.json) is used, and the matching
-#   upstream package is then fetched directly from openclaw/openclaw.
+# Version resolution:
+#   - Installer version defaults to the latest semver GitHub Release in this repository.
+#   - OpenClaw version defaults to the latest version tracked by sync-openclaw
+#     in cdn-template/manifest.json, then fetches that exact upstream release.
 on:
   workflow_dispatch:
     inputs:
       cli_version:
         description: >
-          Installer version to bundle for CLI and GUI (e.g. "1.2.3").
-          Leave empty to auto-detect the latest installer version track.
+          Installer GitHub Release version to bundle for CLI and GUI (e.g. "1.2.3").
+          Leave empty to auto-detect the latest semver release in this repository.
         required: false
         default: ''
       openclaw_version:
@@ -55,10 +67,9 @@ permissions:
   contents: write   # needed to create releases and upload assets
 
 jobs:
-  # ── 1. Build CLI binaries ──────────────────────────────────────────────────
-  build-cli:
-    name: Build CLI binaries
-    # For workflow_run, only proceed when the upstream release succeeded.
+  # ── 1. Download installer release assets ──────────────────────────────────
+  download-installer-assets:
+    name: Download installer release assets
     if: >
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'schedule' ||
@@ -66,134 +77,110 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       cli_version: ${{ steps.ver.outputs.version }}
+      tag: ${{ steps.ver.outputs.tag }}
 
     steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Set up Node.js 18 (matches pkg targets)
-        uses: actions/setup-node@v6
-        with:
-          node-version: '18'
-          cache: 'npm'
-          cache-dependency-path: cli/package-lock.json
-
-      - name: Cache node_modules
-        uses: actions/cache@v4
-        id: cache-cli-node-modules
-        with:
-          path: cli/node_modules
-          key: ${{ runner.os }}-node18-cli-node-modules-${{ hashFiles('cli/package-lock.json') }}
-
-      - name: Install CLI dependencies
-        if: steps.cache-cli-node-modules.outputs.cache-hit != 'true'
-        run: npm ci
-        working-directory: cli
-
-      - name: Check for security vulnerabilities
-        run: npm audit --audit-level=critical
-        working-directory: cli
-
-      - name: Determine CLI version
+      - name: Determine installer version
         id: ver
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ -n "${{ inputs.cli_version }}" ]; then
             VERSION="${{ inputs.cli_version }}"
             VERSION="${VERSION#v}"
           else
-            VERSION=$(python3 - <<'PYEOF'
-          import json
-          import re
-          import subprocess
-          from pathlib import Path
-
-          stable_re = re.compile(r'^v?(\d+)\.(\d+)\.(\d+)$')
-
-          def normalize(version):
-              version = str(version).strip()
-              return version[1:] if version.startswith('v') else version
-
-          def stable_key(version):
-              match = stable_re.fullmatch(str(version).strip())
-              if not match:
-                  return None
-              return tuple(int(part) for part in match.groups())
-
-          candidates = []
-
-          try:
-              tag_output = subprocess.check_output(
-                  ['git', 'tag', '--list', 'v*'],
-                  text=True,
-                  stderr=subprocess.DEVNULL,
-              )
-              for raw_tag in tag_output.splitlines():
-                  tag = raw_tag.strip()
-                  key = stable_key(tag)
-                  if key:
-                      candidates.append((key, normalize(tag)))
-          except subprocess.CalledProcessError:
-              pass
-
-          for path_str, field in [
-              ('cli/package.json', 'version'),
-              ('gui/package.json', 'version'),
-              ('cdn-template/cli-manifest.json', 'latest'),
-          ]:
-              path = Path(path_str)
-              if not path.exists():
-                  continue
-              try:
-                  with path.open('r', encoding='utf-8') as fh:
-                      data = json.load(fh)
-                  version = str(data.get(field, '')).strip()
-              except Exception:
-                  continue
-              key = stable_key(version)
-              if key:
-                  candidates.append((key, normalize(version)))
-
-          if not candidates:
-              print('0.0.0')
-          else:
-              candidates.sort(key=lambda item: item[0])
-              print(candidates[-1][1])
-          PYEOF
-            )
+            VERSION=$(curl -fsSL \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${{ github.repository }}/releases?per_page=100" \
+              | python3 -c "import sys,json,re; rels=json.load(sys.stdin); pat=re.compile(r'^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$'); print(next(((r.get('tag_name','')[1:] if r.get('tag_name','').startswith('v') else r.get('tag_name','')) for r in rels if pat.fullmatch(r.get('tag_name',''))), ''))")
+            [ -n "$VERSION" ] || { echo "ERROR: Could not detect installer release version from GitHub Releases"; exit 1; }
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "CLI version: $VERSION"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Installer version: $VERSION"
 
-      - name: Update CLI version in package.json
+      - name: Download installer release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          cd cli
-          npm version "${{ steps.ver.outputs.version }}" --no-git-tag-version --allow-same-version
-        continue-on-error: true
+          # Pull installer-side files from this repository's GitHub Release,
+          # then reshape the CLI binaries into the local-bundle layout expected
+          # by install.sh / install.ps1.
+          mkdir -p installer-release/raw cli-packages gui-packages bundle-scripts
 
-      - name: Build CLI binaries (all platforms)
-        run: |
-          npm run build:win
-          npm run build:mac-x64
-          npm run build:mac-arm64
-          npm run build:linux
-        working-directory: cli
+          RELEASE_JSON=$(curl -fsSL \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/${TAG}")
 
-      - name: Package CLI binaries into CDN-format archives
-        run: |
-          VERSION="${{ steps.ver.outputs.version }}"
-          mkdir -p cli-packages
-          (cd cli/dist && zip     "$OLDPWD/cli-packages/oclaw-${VERSION}-win32-x64.zip"      oclaw-win-x64.exe)
-          (cd cli/dist && tar -czf "$OLDPWD/cli-packages/oclaw-${VERSION}-darwin-x64.tar.gz"   oclaw-darwin-x64)
-          (cd cli/dist && tar -czf "$OLDPWD/cli-packages/oclaw-${VERSION}-darwin-arm64.tar.gz" oclaw-darwin-arm64)
-          (cd cli/dist && tar -czf "$OLDPWD/cli-packages/oclaw-${VERSION}-linux-x64.tar.gz"   oclaw-linux-x64)
-          echo "=== cli-packages/ ==="
-          ls -lh cli-packages/
+          echo "$RELEASE_JSON" | python3 -c "
+          import os, sys, json
+          version = os.environ['VERSION']
+          required = [
+              'oclaw-win-x64.exe',
+              'oclaw-darwin-x64',
+              'oclaw-darwin-arm64',
+              'oclaw-linux-x64',
+              f'openclaw-gui-setup-{version}-x64.exe',
+              f'openclaw-gui-{version}-win-x64.exe',
+              f'openclaw-gui-{version}-mac-x64.dmg',
+              f'openclaw-gui-{version}-mac-arm64.dmg',
+              f'openclaw-gui-{version}-linux-x64.AppImage',
+              'install.sh',
+              'install.ps1',
+          ]
+          assets = {a['name']: a['browser_download_url'] for a in json.load(sys.stdin).get('assets', [])}
+          missing = [name for name in required if name not in assets]
+          if missing:
+              sys.stderr.write('Missing installer release assets:\n')
+              for name in missing:
+                  sys.stderr.write(f'  - {name}\n')
+              sys.exit(1)
+          for name in required:
+              print(name + '|' + assets[name])
+          " > /tmp/installer-assets.txt
+
+          while IFS='|' read -r name url; do
+            [ -z "$name" ] && continue
+            echo "  ↓ $name"
+            curl -fsSL -L \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -o "installer-release/raw/$name" \
+              "$url"
+          done < /tmp/installer-assets.txt
+
+          cp installer-release/raw/install.sh bundle-scripts/install.sh
+          cp installer-release/raw/install.ps1 bundle-scripts/install.ps1
+
+          cp installer-release/raw/oclaw-win-x64.exe installer-release/raw/oclaw.exe
+          (cd installer-release/raw && zip "$OLDPWD/cli-packages/oclaw-${VERSION}-win32-x64.zip" oclaw.exe)
+
+          cp installer-release/raw/oclaw-darwin-x64 installer-release/raw/oclaw
+          chmod +x installer-release/raw/oclaw
+          (cd installer-release/raw && tar -czf "$OLDPWD/cli-packages/oclaw-${VERSION}-darwin-x64.tar.gz" oclaw)
+
+          cp installer-release/raw/oclaw-darwin-arm64 installer-release/raw/oclaw
+          chmod +x installer-release/raw/oclaw
+          (cd installer-release/raw && tar -czf "$OLDPWD/cli-packages/oclaw-${VERSION}-darwin-arm64.tar.gz" oclaw)
+
+          cp installer-release/raw/oclaw-linux-x64 installer-release/raw/oclaw
+          chmod +x installer-release/raw/oclaw
+          (cd installer-release/raw && tar -czf "$OLDPWD/cli-packages/oclaw-${VERSION}-linux-x64.tar.gz" oclaw)
+
+          cp installer-release/raw/openclaw-gui-setup-${VERSION}-x64.exe gui-packages/
+          cp installer-release/raw/openclaw-gui-${VERSION}-win-x64.exe gui-packages/
+          cp installer-release/raw/openclaw-gui-${VERSION}-mac-x64.dmg gui-packages/
+          cp installer-release/raw/openclaw-gui-${VERSION}-mac-arm64.dmg gui-packages/
+          cp installer-release/raw/openclaw-gui-${VERSION}-linux-x64.AppImage gui-packages/
 
       - name: Generate cli-manifest.json for bundle
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          VERSION="${{ steps.ver.outputs.version }}"
-          python3 - <<EOF
+          python3 - <<'PYEOF'
           import json, hashlib, datetime, os
 
           def sha256_file(path):
@@ -203,128 +190,46 @@ jobs:
                       h.update(chunk)
               return h.hexdigest()
 
-          version = "$VERSION"
+          version = os.environ['VERSION']
           d = 'cli-packages'
           checksums = {}
           for plat, ext in [
-              ('win32-x64',    'zip'),
-              ('darwin-x64',   'tar.gz'),
+              ('win32-x64', 'zip'),
+              ('darwin-x64', 'tar.gz'),
               ('darwin-arm64', 'tar.gz'),
-              ('linux-x64',    'tar.gz'),
+              ('linux-x64', 'tar.gz'),
           ]:
               path = f'{d}/oclaw-{version}-{plat}.{ext}'
               checksums[plat] = 'sha256:' + sha256_file(path) if os.path.exists(path) else 'sha256:UNAVAILABLE'
 
           manifest = {
-              "latest": version,
-              "versions": [{
-                  "version": version,
-                  "releaseDate": datetime.date.today().isoformat(),
-                  "files": {
-                      "win32-x64":    f"oclaw-{version}-win32-x64.zip",
-                      "darwin-x64":   f"oclaw-{version}-darwin-x64.tar.gz",
-                      "darwin-arm64": f"oclaw-{version}-darwin-arm64.tar.gz",
-                      "linux-x64":    f"oclaw-{version}-linux-x64.tar.gz",
+              'latest': version,
+              'versions': [{
+                  'version': version,
+                  'releaseDate': datetime.date.today().isoformat(),
+                  'files': {
+                      'win32-x64': f'oclaw-{version}-win32-x64.zip',
+                      'darwin-x64': f'oclaw-{version}-darwin-x64.tar.gz',
+                      'darwin-arm64': f'oclaw-{version}-darwin-arm64.tar.gz',
+                      'linux-x64': f'oclaw-{version}-linux-x64.tar.gz',
                   },
-                  "checksums": checksums,
-              }]
+                  'checksums': checksums,
+              }],
           }
-          with open(f'{d}/cli-manifest.json', 'w') as f:
+          with open(f'{d}/cli-manifest.json', 'w', encoding='utf-8') as f:
               json.dump(manifest, f, indent=2, ensure_ascii=False)
               f.write('\n')
-          print(json.dumps(manifest, indent=2))
-          EOF
+          print(json.dumps(manifest, indent=2, ensure_ascii=False))
+          PYEOF
 
-      - name: Upload CLI packages artifact
+      - name: Upload installer assets artifact
         uses: actions/upload-artifact@v7
         with:
-          name: offline-cli-packages
-          path: cli-packages/
-          retention-days: 1
-
-  # ── 2. Build GUI installers ────────────────────────────────────────────────
-  build-gui:
-    name: Build ${{ matrix.name }} GUI
-    needs: build-cli
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            name: Windows
-            electron_cache: ~/AppData/Local/electron/Cache
-            build_cmd: build:win
-            artifact_name: offline-gui-win
-            artifact_path: gui/dist/**/*.exe
-          - os: macos-latest
-            name: macOS
-            electron_cache: ~/Library/Caches/electron
-            build_cmd: build:mac
-            artifact_name: offline-gui-mac
-            artifact_path: gui/dist/*.dmg
-          - os: ubuntu-latest
-            name: Linux
-            electron_cache: ~/.cache/electron
-            build_cmd: build:linux
-            artifact_name: offline-gui-linux
-            artifact_path: gui/dist/*.AppImage
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Set up Node.js 20
-        uses: actions/setup-node@v6
-        with:
-          node-version: '20'
-
-      - name: Cache Electron
-        uses: actions/cache@v4
-        with:
-          path: ${{ matrix.electron_cache }}
-          key: ${{ runner.os }}-electron-${{ hashFiles('gui/package.json') }}
-
-      - name: Cache GUI node_modules
-        uses: actions/cache@v4
-        id: cache-gui-node-modules
-        with:
-          path: gui/node_modules
-          key: ${{ runner.os }}-node20-gui-node-modules-${{ hashFiles('gui/package.json') }}
-
-      - name: Set installer version
-        id: ver
-        shell: bash
-        run: |
-          VERSION="${{ needs.build-cli.outputs.cli_version }}"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
-      - name: Update GUI version in package.json
-        shell: bash
-        run: |
-          cd gui
-          npm version "${{ steps.ver.outputs.version }}" --no-git-tag-version --allow-same-version
-        continue-on-error: true
-
-      - name: Generate placeholder icons
-        run: node scripts/gen-icons.js
-
-      - name: Install GUI dependencies
-        if: steps.cache-gui-node-modules.outputs.cache-hit != 'true'
-        run: npm install
-        working-directory: gui
-
-      - name: Build GUI
-        run: npm run ${{ matrix.build_cmd }}
-        working-directory: gui
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-
-      - name: Upload GUI artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.artifact_path }}
+          name: offline-installer-assets
+          path: |
+            cli-packages/
+            gui-packages/
+            bundle-scripts/
           retention-days: 1
 
   # ── 3. Download OpenClaw upstream packages ─────────────────────────────────
@@ -350,6 +255,8 @@ jobs:
             VERSION="${{ inputs.openclaw_version }}"
             VERSION="${VERSION#v}"
           else
+            # Use the version track already published by sync-openclaw, then
+            # fetch that exact upstream release from openclaw/openclaw.
             VERSION=$(python3 - <<'PYEOF'
           import json
           from pathlib import Path
@@ -594,17 +501,15 @@ jobs:
   # ── 4. Assemble and publish the offline bundle ──────────────────────────────
   assemble-bundle:
     name: Assemble and publish offline bundle
-    needs: [build-cli, build-gui, download-openclaw]
+    needs: [download-installer-assets, download-openclaw]
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
-
-      - name: Download CLI packages artifact
+      - name: Download installer assets artifact
         uses: actions/download-artifact@v8
         with:
-          name: offline-cli-packages
-          path: cli-packages/
+          name: offline-installer-assets
+          path: installer-assets/
 
       - name: Download OpenClaw packages artifact
         uses: actions/download-artifact@v8
@@ -612,27 +517,9 @@ jobs:
           name: offline-openclaw-packages
           path: openclaw-packages/
 
-      - name: Download Windows GUI artifact
-        uses: actions/download-artifact@v8
-        with:
-          name: offline-gui-win
-          path: artifacts/gui/win/
-
-      - name: Download macOS GUI artifact
-        uses: actions/download-artifact@v8
-        with:
-          name: offline-gui-mac
-          path: artifacts/gui/mac/
-
-      - name: Download Linux GUI artifact
-        uses: actions/download-artifact@v8
-        with:
-          name: offline-gui-linux
-          path: artifacts/gui/linux/
-
       - name: Assemble full offline bundle directory
         env:
-          CLI_VERSION:      ${{ needs.build-cli.outputs.cli_version }}
+          CLI_VERSION:      ${{ needs.download-installer-assets.outputs.cli_version }}
           OPENCLAW_VERSION: ${{ needs.download-openclaw.outputs.openclaw_version }}
         run: |
           CLI_VER="$CLI_VERSION"
@@ -642,8 +529,8 @@ jobs:
           mkdir -p "$BUNDLE/cli/${CLI_VER}" "$BUNDLE/pkg/${OC_VER}" "$BUNDLE/gui/${CLI_VER}"
 
           # CLI manifest and packages
-          cp cli-packages/cli-manifest.json "$BUNDLE/cli-manifest.json"
-          for f in cli-packages/oclaw-*.zip cli-packages/oclaw-*.tar.gz; do
+          cp installer-assets/cli-packages/cli-manifest.json "$BUNDLE/cli-manifest.json"
+          for f in installer-assets/cli-packages/oclaw-*.zip installer-assets/cli-packages/oclaw-*.tar.gz; do
             [ -f "$f" ] && cp "$f" "$BUNDLE/cli/${CLI_VER}/"
           done
 
@@ -654,20 +541,20 @@ jobs:
           done
 
           # GUI installers
-          find artifacts/gui/ -type f \( -name "*.exe" -o -name "*.dmg" -o -name "*.AppImage" \) ! -path "*/win-unpacked/*" | while read -r f; do
+          find installer-assets/gui-packages/ -type f \( -name "*.exe" -o -name "*.dmg" -o -name "*.AppImage" \) | while read -r f; do
             cp "$f" "$BUNDLE/gui/${CLI_VER}/"
           done
 
           # Bootstrap scripts (convenience copies so users can install from within the bundle)
-          cp scripts/install.sh  "$BUNDLE/"
-          cp scripts/install.ps1 "$BUNDLE/"
+          cp installer-assets/bundle-scripts/install.sh  "$BUNDLE/"
+          cp installer-assets/bundle-scripts/install.ps1 "$BUNDLE/"
 
           echo "=== Full bundle structure ==="
           find "$BUNDLE" -type f | sort | xargs ls -lh
 
       - name: Create per-platform offline bundle archives
         env:
-          CLI_VERSION:      ${{ needs.build-cli.outputs.cli_version }}
+          CLI_VERSION:      ${{ needs.download-installer-assets.outputs.cli_version }}
           OPENCLAW_VERSION: ${{ needs.download-openclaw.outputs.openclaw_version }}
         run: |
           CLI_VER="$CLI_VERSION"
@@ -755,7 +642,7 @@ jobs:
 
       - name: Validate offline bundle archives
         env:
-          CLI_VERSION:      ${{ needs.build-cli.outputs.cli_version }}
+          CLI_VERSION:      ${{ needs.download-installer-assets.outputs.cli_version }}
           OPENCLAW_VERSION: ${{ needs.download-openclaw.outputs.openclaw_version }}
         run: |
           python3 - <<'PYEOF'
@@ -852,7 +739,7 @@ jobs:
 
       - name: Validate bundled GUI installers
         env:
-          CLI_VERSION: ${{ needs.build-cli.outputs.cli_version }}
+          CLI_VERSION: ${{ needs.download-installer-assets.outputs.cli_version }}
         run: |
           python3 - <<'PYEOF'
           import os
@@ -881,20 +768,36 @@ jobs:
       - name: Create GitHub Release with offline bundles
         uses: softprops/action-gh-release@v2.5.0
         with:
-          tag_name: offline-${{ needs.build-cli.outputs.cli_version }}-oc${{ needs.download-openclaw.outputs.openclaw_version }}
-          name: "离线安装包 | CLI ${{ needs.build-cli.outputs.cli_version }} + OpenClaw ${{ needs.download-openclaw.outputs.openclaw_version }}"
+          tag_name: offline-${{ needs.download-installer-assets.outputs.cli_version }}-oc${{ needs.download-openclaw.outputs.openclaw_version }}
+          name: "离线安装包 | CLI ${{ needs.download-installer-assets.outputs.cli_version }} + OpenClaw ${{ needs.download-openclaw.outputs.openclaw_version }}"
           body: |
             ## 全量离线安装包
 
-            本离线包包含所有必要文件，**无需联网**即可完成 OpenClaw 安装。
+            本离线包包含安装所需的完整文件集，**无需联网**即可完成 OpenClaw 安装。
+
+            文件来源分为三部分：
+
+            - 当前仓库的 installer GitHub Release：CLI、GUI、安装脚本
+            - openclaw/openclaw 官方 GitHub Release：OpenClaw 主程序包
+            - 本工作流运行时生成：bundle 内部 manifest 与校验和
 
             ### 📦 包内组件
 
             | 组件 | 版本 |
             |------|------|
-            | oclaw CLI（安装工具）| `${{ needs.build-cli.outputs.cli_version }}` |
-            | OpenClaw GUI（图形安装器）| `${{ needs.build-cli.outputs.cli_version }}` |
+            | oclaw CLI（安装工具）| `${{ needs.download-installer-assets.outputs.cli_version }}` |
+            | OpenClaw GUI（图形安装器）| `${{ needs.download-installer-assets.outputs.cli_version }}` |
             | OpenClaw（主程序）| `${{ needs.download-openclaw.outputs.openclaw_version }}` |
+
+            ### 📁 资产来源
+
+            | 内容 | 来源 |
+            |------|------|
+            | `cli/*` | 当前仓库 installer GitHub Release 附件二次打包 |
+            | `gui/*` | 当前仓库 installer GitHub Release 附件 |
+            | `pkg/*` | `openclaw/openclaw` 官方 GitHub Release 附件二次打包 |
+            | `cli-manifest.json` / `manifest.json` | 本工作流按最终 bundle 内容重新生成 |
+            | `install.sh` / `install.ps1` | 当前仓库 installer GitHub Release 附件 |
 
             ### 📥 下载说明
 
@@ -915,6 +818,7 @@ jobs:
             每个离线包同时包含：
             - 可直接运行的 GUI 安装器
             - 可供 `install.sh` / `install.ps1` 使用的本地离线 bundle 目录
+            - 与 bundle 实际内容一致的离线 manifest 和校验和
 
             **macOS / Linux：**
             ```bash
