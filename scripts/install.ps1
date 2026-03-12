@@ -29,6 +29,11 @@ $script:InstallCommand = 'pnpm add -g openclaw@latest --registry=https://registr
 # LTS version to install when Node.js is absent (used by MSI fallback); full semver required
 $script:NodeLtsVersion = '22.14.0'
 
+# Thin wrappers so tests can mock them (Pester cannot reliably intercept
+# & external.cmd calls on Windows; wrapping in a PS function allows Mocking).
+function Invoke-Npm  { & npm  @args }
+function Invoke-Pnpm { & pnpm @args }
+
 function Write-LogLine {
   param([string]$Level, [string]$Message)
   $line = "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [$Level] $Message"
@@ -169,7 +174,7 @@ function Ensure-Pnpm {
   }
 
   Write-Info '未检测到 pnpm，正在通过 npm 安装...'
-  & npm install -g pnpm
+  Invoke-Npm install -g pnpm
   if ($LASTEXITCODE -ne 0) {
     Write-Fail 'pnpm 安装失败，请先执行 npm install -g pnpm。'
   }
@@ -195,7 +200,7 @@ function Install-OpenClaw {
   }
 
   Write-Info "执行命令：$script:InstallCommand"
-  & pnpm add -g openclaw@latest --registry=https://registry.npmmirror.com
+  Invoke-Pnpm add -g openclaw@latest --registry=https://registry.npmmirror.com
   if ($LASTEXITCODE -ne 0) {
     Write-Fail 'OpenClaw 安装失败。'
   }

@@ -112,8 +112,8 @@ Describe 'Ensure-Pnpm' {
   Context 'pnpm is absent but npm install succeeds' {
     BeforeAll {
       Mock Get-Command { $null } -ParameterFilter { $Name -eq 'pnpm' }
-      # npm install -g pnpm sets $LASTEXITCODE = 0
-      Mock npm { $global:LASTEXITCODE = 0 }
+      # Invoke-Npm wraps & npm; mocking it avoids calling the real npm on CI
+      Mock Invoke-Npm { $global:LASTEXITCODE = 0 }
       # After npm install, Get-Version finds pnpm
       Mock Get-Version { '9.0.0' } -ParameterFilter { $Command -eq 'pnpm' }
     }
@@ -126,7 +126,7 @@ Describe 'Ensure-Pnpm' {
   Context 'pnpm is absent and npm install fails' {
     BeforeAll {
       Mock Get-Command { $null } -ParameterFilter { $Name -eq 'pnpm' }
-      Mock npm { $global:LASTEXITCODE = 1 }
+      Mock Invoke-Npm { $global:LASTEXITCODE = 1 }
     }
 
     It 'throws because npm install failed' {
@@ -141,7 +141,8 @@ Describe 'Install-OpenClaw' {
 
   Context 'pnpm install succeeds and openclaw is available' {
     BeforeAll {
-      Mock pnpm { $global:LASTEXITCODE = 0 }
+      # Invoke-Pnpm wraps & pnpm; mocking it avoids calling the real pnpm on CI
+      Mock Invoke-Pnpm { $global:LASTEXITCODE = 0 }
       Mock Get-Version {
         if ($Command -eq 'openclaw') { '1.0.25' } else { $null }
       }
@@ -154,7 +155,7 @@ Describe 'Install-OpenClaw' {
 
   Context 'pnpm install exits non-zero' {
     BeforeAll {
-      Mock pnpm { $global:LASTEXITCODE = 1 }
+      Mock Invoke-Pnpm { $global:LASTEXITCODE = 1 }
     }
 
     It 'throws because pnpm failed' {
@@ -164,7 +165,7 @@ Describe 'Install-OpenClaw' {
 
   Context 'pnpm install succeeds but openclaw not found afterwards' {
     BeforeAll {
-      Mock pnpm { $global:LASTEXITCODE = 0 }
+      Mock Invoke-Pnpm { $global:LASTEXITCODE = 0 }
       Mock Get-Version { $null }
     }
 
