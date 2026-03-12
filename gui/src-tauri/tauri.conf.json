@@ -31,11 +31,19 @@
       "../assets/icon.ico",
       "../assets/icon.icns"
     ],
-    "createUpdaterArtifacts": false,
+    "createUpdaterArtifacts": true,
     "windows": {
       "nsis": {
         "installerIcon": "../assets/icon.ico"
       }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://oclaw.chatu.plus/gui/{{target}}/{{arch}}/latest.json"
+      ],
+      "pubkey": "PLACEHOLDER_REPLACE_WITH_TAURI_SIGNING_PUBLIC_KEY"
     }
   }
 }
