@@ -147,7 +147,7 @@ jobs:
 
   # ── Bootstrap scripts sanity checks ────────────────────────────────────────
   test-bootstrap-scripts:
-    name: Bootstrap script checks
+    name: Bootstrap script tests (Linux)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -156,13 +156,29 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Validate install.sh prerequisites and command
+      - name: Validate install.sh snippets
         run: |
           grep -q 'NODE_MIRROR' scripts/install.sh
           grep -q 'pnpm add -g openclaw@latest --registry=https://registry.npmmirror.com' scripts/install.sh
           grep -q 'Node.js 18' scripts/install.sh
 
-      - name: Validate install.ps1 prerequisites and command
+      - name: Install bats-core
+        run: sudo apt-get install -y bats
+
+      - name: Run bats unit tests for install.sh
+        run: bats scripts/__tests__/install.sh.bats
+
+  # ── Bootstrap script tests (Windows / Pester) ──────────────────────────────
+  test-bootstrap-scripts-windows:
+    name: Bootstrap script tests (Windows)
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Validate install.ps1 snippets
         shell: pwsh
         run: |
           $content = Get-Content 'scripts\install.ps1' -Raw
@@ -177,6 +193,21 @@ jobs:
               exit 1
             }
           }
+
+      - name: Install Pester 5
+        shell: pwsh
+        run: Install-Module -Name Pester -Force -SkipPublisherCheck -MinimumVersion 5.0.0
+
+      - name: Run Pester unit tests for install.ps1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Import-Module Pester
+          $cfg = New-PesterConfiguration
+          $cfg.Run.Path      = 'scripts/__tests__/install.ps1.Tests.ps1'
+          $cfg.Output.Verbosity = 'Detailed'
+          $cfg.Run.Exit      = $true
+          Invoke-Pester -Configuration $cfg
 
   # ── GUI Tests ──────────────────────────────────────────────────────────────
   # Tests for gui/src/lib/ modules using Node.js built-in test runner.
@@ -243,7 +274,7 @@ jobs:
   # ── Auto-tag on main branch (triggers release.yml) ───────────────────────
   auto-tag:
     name: Auto-tag release
-    needs: [test-cli, lint-cli, build-check-cli, test-bootstrap-scripts, test-gui, audit]
+    needs: [test-cli, lint-cli, build-check-cli, test-bootstrap-scripts, test-bootstrap-scripts-windows, test-gui, audit]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
