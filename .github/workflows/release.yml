@@ -278,14 +278,10 @@ jobs:
             librsvg2-dev \
             patchelf
 
-      - name: Cache Cargo registry
-        uses: actions/cache@v4
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            gui/src-tauri/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('gui/src-tauri/Cargo.lock') }}
+          workspaces: "gui/src-tauri -> target"
 
       - name: Cache GUI node_modules
         uses: actions/cache@v4
