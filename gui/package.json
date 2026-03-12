@@ -10,10 +10,10 @@
     "start": "tauri dev",
     "test": "node --test src/__tests__/config.test.js src/__tests__/platform.test.js src/__tests__/logger.test.js src/__tests__/registry.test.js src/__tests__/runtime.test.js",
     "build": "npm run build:win",
-    "build:win": "tauri build --bundles nsis ; node scripts/collect-artifacts.js win",
-    "build:mac": "tauri build --bundles dmg ; node scripts/collect-artifacts.js mac",
-    "build:linux": "tauri build --bundles appimage ; node scripts/collect-artifacts.js linux",
-    "build:all": "npm run build:win ; npm run build:mac ; npm run build:linux",
+    "build:win": "tauri build --bundles nsis && node scripts/collect-artifacts.js win",
+    "build:mac": "tauri build --bundles dmg && node scripts/collect-artifacts.js mac",
+    "build:linux": "tauri build --bundles appimage && node scripts/collect-artifacts.js linux",
+    "build:all": "npm run build:win && npm run build:mac && npm run build:linux",
     "pack": "tauri build --debug"
   },
   "keywords": [
