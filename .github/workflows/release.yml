@@ -530,10 +530,10 @@ jobs:
           | 文件 | 平台 | 说明 |
           |------|------|------|
           | \`openclaw-gui-setup-${VERSION}-x64.exe\` | Windows | NSIS 安装向导（推荐）|
-          | \`openclaw-gui-${VERSION}-win-x64.exe\` | Windows | 免安装便携版 |
-          | \`openclaw-gui-${VERSION}-mac-x64.dmg\` | macOS | Intel x64 磁盘映像 |
-          | \`openclaw-gui-${VERSION}-mac-arm64.dmg\` | macOS | Apple Silicon 磁盘映像 |
-          | \`openclaw-gui-${VERSION}-linux-x64.AppImage\` | Linux | AppImage 便携版 |
+          | \`openclaw-gui-${VERSION}-win32-x64.exe\` | Windows | 免安装便携版 |
+          | \`openclaw-gui-${VERSION}-darwin-x64.dmg\` | macOS | Intel x64 磁盘映像 |
+          | \`openclaw-gui-${VERSION}-darwin-arm64.dmg\` | macOS | Apple Silicon 磁盘映像 |
+          | \`openclaw-gui-${VERSION}-linux-x86_64.AppImage\` | Linux | AppImage 便携版 |
 
           ### 🛠️ 引导脚本
 
@@ -771,10 +771,10 @@ jobs:
               base + '/cli/' + v + '/oclaw-' + v + '-darwin-arm64.tar.gz',
               base + '/cli/' + v + '/oclaw-' + v + '-linux-x64.tar.gz',
               base + '/gui/' + v + '/openclaw-gui-setup-' + v + '-x64.exe',
-              base + '/gui/' + v + '/openclaw-gui-' + v + '-win-x64.exe',
-              base + '/gui/' + v + '/openclaw-gui-' + v + '-mac-x64.dmg',
-              base + '/gui/' + v + '/openclaw-gui-' + v + '-mac-arm64.dmg',
-              base + '/gui/' + v + '/openclaw-gui-' + v + '-linux-x64.AppImage',
+              base + '/gui/' + v + '/openclaw-gui-' + v + '-win32-x64.exe',
+              base + '/gui/' + v + '/openclaw-gui-' + v + '-darwin-x64.dmg',
+              base + '/gui/' + v + '/openclaw-gui-' + v + '-darwin-arm64.dmg',
+              base + '/gui/' + v + '/openclaw-gui-' + v + '-linux-x86_64.AppImage',
           ]))
           PYEOF
           )

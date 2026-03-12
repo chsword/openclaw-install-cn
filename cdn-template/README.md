@@ -27,10 +27,10 @@
 └── gui/                   # GUI 离线安装包目录
     └── 1.0.0/
         ├── openclaw-gui-setup-1.0.0-x64.exe
-        ├── openclaw-gui-1.0.0-win-x64.exe
-        ├── openclaw-gui-1.0.0-mac-x64.dmg
-        ├── openclaw-gui-1.0.0-mac-arm64.dmg
-        └── openclaw-gui-1.0.0-linux-x64.AppImage
+        ├── openclaw-gui-1.0.0-win32-x64.exe
+        ├── openclaw-gui-1.0.0-darwin-x64.dmg
+        ├── openclaw-gui-1.0.0-darwin-arm64.dmg
+        └── openclaw-gui-1.0.0-linux-x86_64.AppImage
 ```
 
 ## manifest.json 格式说明

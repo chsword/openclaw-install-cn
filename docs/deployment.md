@@ -274,10 +274,10 @@ oclaw status --check-updates
 └── gui/                        # GUI 离线安装包目录
     ├── 1.0.0/
     │   ├── openclaw-gui-setup-1.0.0-x64.exe      # Windows NSIS 安装向导
-    │   ├── openclaw-gui-1.0.0-win-x64.exe         # Windows 便携版
-    │   ├── openclaw-gui-1.0.0-mac-x64.dmg         # macOS Intel 磁盘映像
-    │   ├── openclaw-gui-1.0.0-mac-arm64.dmg       # macOS Apple Silicon 磁盘映像
-    │   └── openclaw-gui-1.0.0-linux-x64.AppImage  # Linux AppImage
+   │   ├── openclaw-gui-1.0.0-win32-x64.exe       # Windows 便携版
+   │   ├── openclaw-gui-1.0.0-darwin-x64.dmg      # macOS Intel 磁盘映像
+   │   ├── openclaw-gui-1.0.0-darwin-arm64.dmg    # macOS Apple Silicon 磁盘映像
+   │   └── openclaw-gui-1.0.0-linux-x86_64.AppImage # Linux AppImage
     └── ...
 ```
 
