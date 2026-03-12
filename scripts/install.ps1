@@ -14,10 +14,13 @@
   Path to a local bundle directory to skip ALL network downloads
   (offline / air-gap mode). Preferred bundle structure:
     {LocalBundle}\manifest.json
-    {LocalBundle}\oclaw\oclaw-win-x64.exe
-    {LocalBundle}\gui\openclaw-gui-*
+    {LocalBundle}\oclaw-win-x64.exe
+    {LocalBundle}\openclaw-gui-*-win32-x64.exe
+    {LocalBundle}\install.ps1
     {LocalBundle}\{version}\openclaw-{version}-win32-{arch}.zip
   Legacy bundle structure is also supported:
+    {LocalBundle}\oclaw\oclaw-win-x64.exe
+    {LocalBundle}\gui\openclaw-gui-*
     {LocalBundle}\cli-manifest.json
     {LocalBundle}\cli\{version}\oclaw-{version}-win32-{arch}.zip
     {LocalBundle}\pkg\{version}\openclaw-{version}-win32-{arch}.zip
@@ -463,14 +466,22 @@ function Install-FromLocalBundle {
   if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { $arch = 'arm64' }
   Write-Verbose-Log "Platform: win32-${arch}"
 
-  $directExePath = Join-Path $bundle "oclaw\oclaw-win-$arch.exe"
-  if ($arch -eq 'arm64' -and -not (Test-Path $directExePath)) {
+  $directExeCandidates = @(
+    (Join-Path $bundle "oclaw-win-$arch.exe"),
+    (Join-Path $bundle "oclaw\oclaw-win-$arch.exe")
+  )
+  $directExePath = $directExeCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+  if ($arch -eq 'arm64' -and -not $directExePath) {
     Write-Warn "arm64 oclaw binary not found in bundle, falling back to x64..."
     $arch = 'x64'
-    $directExePath = Join-Path $bundle 'oclaw\oclaw-win-x64.exe'
+    $directExeCandidates = @(
+      (Join-Path $bundle 'oclaw-win-x64.exe'),
+      (Join-Path $bundle 'oclaw\oclaw-win-x64.exe')
+    )
+    $directExePath = $directExeCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
   }
 
-  if (Test-Path $directExePath) {
+  if ($directExePath) {
     Write-Info "Using bundled oclaw binary: $(Split-Path $directExePath -Leaf)"
     Copy-Item -Path $directExePath -Destination (Join-Path $OclawBinDir 'oclaw.exe') -Force
   } else {
