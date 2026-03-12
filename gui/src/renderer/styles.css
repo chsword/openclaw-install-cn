@@ -136,6 +136,10 @@ body {
   border-color: rgba(0, 136, 255, 0.4);
 }
 
+#btn-install-pnpm {
+  border-color: rgba(0, 136, 255, 0.28);
+}
+
 /* ── Buttons ─────────────────────────────────────────────────────────────────── */
 .btn {
   border: none;

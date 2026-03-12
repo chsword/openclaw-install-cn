@@ -25,7 +25,7 @@ function exitForMissingPrerequisite(environment) {
 
   if (!environment.pnpm.installed) {
     log.error('pnpm is not installed.');
-    log.dim('Install it with: npm install -g pnpm');
+    log.dim('Install it with: npm install -g pnpm --registry=https://registry.npmmirror.com');
     process.exit(1);
   }
 }

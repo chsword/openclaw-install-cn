@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  OpenClaw 中国大陆安装助手<br>
+  OpenClaw 安装助手<br>
   使用 pnpm 与 npmmirror 安装和升级 <a href="https://openclaw.ai/">OpenClaw</a>
 </p>
 

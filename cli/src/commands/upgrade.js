@@ -35,7 +35,7 @@ async function runUpgrade(options = {}) {
       }
       if (!environment.pnpm.installed) {
         log.warn('pnpm is not installed.');
-        log.dim('Install it with: npm install -g pnpm');
+        log.dim('Install it with: npm install -g pnpm --registry=https://registry.npmmirror.com');
       }
     }
     process.exit(1);

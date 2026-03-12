@@ -9,6 +9,7 @@ const elPlatform         = document.getElementById('val-platform');
 const envHint            = document.getElementById('env-hint');
 
 const btnInstallNode     = document.getElementById('btn-install-node');
+const btnInstallPnpm     = document.getElementById('btn-install-pnpm');
 const btnInstall         = document.getElementById('btn-install');
 const btnCheck           = document.getElementById('btn-check');
 const btnSettings        = document.getElementById('btn-settings');
@@ -30,6 +31,9 @@ const btnExportLogs      = document.getElementById('btn-export-logs');
 const btnClearLogs       = document.getElementById('btn-clear-logs');
 
 const messageArea        = document.getElementById('message-area');
+const mainContainer      = document.querySelector('.main');
+const headerContainer    = document.querySelector('.header');
+const footerContainer    = document.querySelector('.footer');
 
 /* ── State ─────────────────────────────────────────────────────────────────── */
 let currentStatus = null;
@@ -37,21 +41,44 @@ let latestVersion = null;
 let busy = false;
 let logEntries = [];
 let logRefreshTimer = null;
+let resizeTimer = null;
 
 /* ── Helpers ───────────────────────────────────────────────────────────────── */
 function showMessage(msg, type = 'info') {
   messageArea.textContent = msg;
   messageArea.className = `message-area ${type}`;
   messageArea.style.display = 'block';
+  requestWindowFit();
 }
 
 function hideMessage() {
   messageArea.style.display = 'none';
+  requestWindowFit();
+}
+
+function requestWindowFit() {
+  if (!window.oclaw || typeof window.oclaw.resizeWindow !== 'function') {
+    return;
+  }
+
+  if (resizeTimer) {
+    clearTimeout(resizeTimer);
+  }
+
+  resizeTimer = setTimeout(() => {
+    resizeTimer = null;
+    const headerHeight = headerContainer ? headerContainer.offsetHeight : 0;
+    const footerHeight = footerContainer ? footerContainer.offsetHeight : 0;
+    const mainHeight = mainContainer ? mainContainer.scrollHeight : 0;
+    const desiredHeight = headerHeight + footerHeight + mainHeight + 8;
+    window.oclaw.resizeWindow({ height: desiredHeight }).catch(() => {});
+  }, 0);
 }
 
 function setButtonsBusy(isBusy) {
   busy = isBusy;
   btnInstallNode.disabled = isBusy;
+  btnInstallPnpm.disabled = isBusy;
   btnInstall.disabled = isBusy;
   btnCheck.disabled   = isBusy;
 }
@@ -119,28 +146,34 @@ async function loadStatus() {
 
     if (currentStatus.installed && currentStatus.openclaw && currentStatus.openclaw.installed) {
       setValue(elInstalledVersion, formatBinaryValue(currentStatus.openclaw, currentStatus.installedVersion), 'installed');
-      btnInstall.textContent = '升级';
+      btnInstall.textContent = '升级 OpenClaw';
     } else {
       setValue(elInstalledVersion, '未安装', 'not-installed');
-      btnInstall.textContent = '安装';
+      btnInstall.textContent = '安装 OpenClaw';
     }
 
-    const missingNode = !currentStatus.node.installed || !currentStatus.node.supported;
-    const missingPnpm = !currentStatus.pnpm.installed;
-    btnInstallNode.style.display = missingNode ? '' : 'none';
-    btnInstall.disabled = missingNode || missingPnpm || busy;
+    const nodeReady = currentStatus.node.installed && currentStatus.node.supported;
+    const pnpmReady = currentStatus.pnpm.installed;
 
-    if (missingNode) {
+    btnInstallNode.textContent = nodeReady ? '升级 Node.js' : '安装 Node.js';
+    btnInstallPnpm.textContent = pnpmReady ? '升级 pnpm' : '安装 pnpm';
+
+    btnInstallNode.disabled = busy;
+    btnInstallPnpm.disabled = busy || !nodeReady;
+    btnInstall.disabled = busy || !nodeReady || !pnpmReady;
+
+    if (!nodeReady) {
       envHint.textContent = currentStatus.node.installed
         ? `当前 Node.js 版本 ${currentStatus.node.version} 过低，至少需要 18。可点击“安装 Node.js”自动安装 LTS 版本。`
-        : '未检测到 Node.js。可点击“安装 Node.js”自动安装 LTS 版本。';
-    } else if (missingPnpm) {
-      envHint.textContent = '未检测到 pnpm。安装/升级时会自动通过 npm（npmmirror）安装 pnpm。';
+        : '未检测到 Node.js。请先安装或升级 Node.js，再安装 pnpm 与 OpenClaw。';
+    } else if (!pnpmReady) {
+      envHint.textContent = '未检测到 pnpm。可点击“安装 pnpm”，或执行：npm install -g pnpm --registry=https://registry.npmmirror.com。';
     } else if (currentStatus.installed && currentStatus.installedVersion) {
-      envHint.textContent = '环境检查已通过，可以直接检查更新或执行升级。';
+      envHint.textContent = '环境检查已通过：可升级 Node.js / pnpm，或检查并升级 OpenClaw。';
     } else {
-      envHint.textContent = '环境检查已通过，可以直接执行安装。';
+      envHint.textContent = '环境检查已通过：可执行 OpenClaw 安装，也可先升级 Node.js / pnpm。';
     }
+    requestWindowFit();
   } catch (err) {
     showMessage(`读取状态失败: ${err.message}`, 'error');
   }
@@ -154,21 +187,50 @@ async function doInstallNodejs() {
   cardProgress.style.display = 'block';
   progressBar.style.width = '60%';
   progressPct.textContent = '执行中';
-  progressStatus.textContent = '正在安装 Node.js LTS…';
+  progressStatus.textContent = '正在安装/升级 Node.js LTS…';
+  requestWindowFit();
 
   const result = await window.oclaw.installNodejs();
   if (result.success) {
     progressBar.style.width = '100%';
     progressBar.style.background = 'linear-gradient(90deg, #0066cc, #0088ff)';
     progressPct.textContent = '完成';
-    showMessage(`Node.js ${result.version || ''} 安装成功。`, 'success');
+    showMessage(`Node.js ${result.version || ''} 安装/升级成功。`, 'success');
     await loadStatus();
   } else {
     progressBar.style.width = '100%';
     progressBar.style.background = 'linear-gradient(90deg, #ef4444, #f97316)';
     progressPct.textContent = '失败';
     const manualTip = result.manualUrl ? ` 可改为手动安装: ${result.manualUrl}` : '';
-    showMessage(`Node.js 安装失败: ${result.error}.${manualTip}`, 'error');
+    showMessage(`Node.js 安装/升级失败: ${result.error}.${manualTip}`, 'error');
+  }
+
+  setButtonsBusy(false);
+}
+
+async function doInstallPnpm() {
+  if (busy) return;
+  setButtonsBusy(true);
+  hideMessage();
+
+  cardProgress.style.display = 'block';
+  progressBar.style.width = '60%';
+  progressBar.style.background = 'linear-gradient(90deg, #0066cc, #0088ff)';
+  progressPct.textContent = '执行中';
+  progressStatus.textContent = '正在安装/升级 pnpm…';
+  requestWindowFit();
+
+  const result = await window.oclaw.installPnpm();
+  if (result.success) {
+    progressBar.style.width = '100%';
+    progressPct.textContent = '完成';
+    showMessage(`pnpm ${result.version || ''} 安装/升级成功。`, 'success');
+    await loadStatus();
+  } else {
+    progressBar.style.width = '100%';
+    progressBar.style.background = 'linear-gradient(90deg, #ef4444, #f97316)';
+    progressPct.textContent = '失败';
+    showMessage(`pnpm 安装/升级失败: ${result.error}`, 'error');
   }
 
   setButtonsBusy(false);
@@ -177,6 +239,7 @@ async function doInstallNodejs() {
 /* ── Check for updates ─────────────────────────────────────────────────────── */
 async function checkLatest() {
   setValue(elLatestVersion, '检查中…');
+  requestWindowFit();
   const result = await window.oclaw.checkLatest();
   if (result.success) {
     latestVersion = result.latest;
@@ -208,6 +271,7 @@ async function doInstall() {
   progressBar.style.width = '0%';
   progressPct.textContent = '执行中';
   progressStatus.textContent = '准备检查环境…';
+  requestWindowFit();
 
   // Set up progress listener
   window.oclaw.offInstallProgress();
@@ -246,11 +310,13 @@ function openSettings() {
   loadLogs();
   startLogAutoRefresh();
   hideMessage();
+  requestWindowFit();
 }
 
 function closeSettings() {
   cardSettings.style.display = 'none';
   stopLogAutoRefresh();
+  requestWindowFit();
 }
 
 /* ── Log viewer ────────────────────────────────────────────────────────────── */
@@ -291,6 +357,7 @@ function renderLogs() {
 
   if (filtered.length === 0) {
     logEmpty.style.display = '';
+    requestWindowFit();
     return;
   }
 
@@ -336,6 +403,7 @@ function renderLogs() {
 
     logViewer.insertBefore(el, logEmpty);
   }
+  requestWindowFit();
 }
 
 async function doExportLogs() {
@@ -361,6 +429,7 @@ async function doClearLogs() {
 /* ── Event listeners ───────────────────────────────────────────────────────── */
 btnInstall.addEventListener('click', doInstall);
 btnInstallNode.addEventListener('click', doInstallNodejs);
+btnInstallPnpm.addEventListener('click', doInstallPnpm);
 btnCheck.addEventListener('click', async () => {
   setButtonsBusy(true);
   hideMessage();
@@ -395,6 +464,7 @@ window.onunhandledrejection = function (event) {
 /* ── Boot ──────────────────────────────────────────────────────────────────── */
 (async () => {
   await loadStatus();
+  requestWindowFit();
   // Auto-check for updates in background (non-blocking)
   checkLatest().catch(() => {});
 })();

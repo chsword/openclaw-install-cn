@@ -17,6 +17,9 @@ const platformLib = require('./lib/platform');
 const runtimeLib = require('./lib/runtime');
 
 let mainWindow = null;
+const WINDOW_WIDTH = 720;
+const WINDOW_MIN_HEIGHT = 520;
+const WINDOW_MAX_HEIGHT = 920;
 
 // ── Error logging ─────────────────────────────────────────────────────────────
 
@@ -129,8 +132,8 @@ process.on('unhandledRejection', (reason) => {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 720,
-    height: 520,
+    width: WINDOW_WIDTH,
+    height: WINDOW_MIN_HEIGHT,
     resizable: false,
     title: 'OpenClaw 安装助手',
     icon: path.join(__dirname, '..', 'assets', 'icon.png'),
@@ -175,6 +178,27 @@ ipcMain.handle('get-status', async () => {
     pnpm: environment.pnpm,
     installCommand: runtimeLib.getInstallCommandString(),
   };
+});
+
+/** Resize window height to fit current renderer content. */
+ipcMain.handle('resize-window', async (_event, payload = {}) => {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return { success: false, error: 'window not available' };
+  }
+
+  const requestedHeight = Number(payload.height);
+  if (!Number.isFinite(requestedHeight)) {
+    return { success: false, error: 'invalid height' };
+  }
+
+  const boundedHeight = Math.max(
+    WINDOW_MIN_HEIGHT,
+    Math.min(WINDOW_MAX_HEIGHT, Math.round(requestedHeight)),
+  );
+
+  const [currentWidth] = mainWindow.getSize();
+  mainWindow.setSize(currentWidth || WINDOW_WIDTH, boundedHeight);
+  return { success: true, height: boundedHeight };
 });
 
 /** Check for latest version on CDN. */
@@ -309,6 +333,44 @@ ipcMain.handle('install-nodejs', async () => {
       success: false,
       error: err.message,
       manualUrl: runtimeLib.NODEJS_DOWNLOAD_URL,
+    };
+  }
+});
+
+/** Install or upgrade pnpm (requires Node.js >= 18). */
+ipcMain.handle('install-pnpm', async () => {
+  try {
+    const environment = await runtimeLib.inspectEnvironment();
+    if (!environment.node.installed) {
+      return {
+        success: false,
+        error: '未检测到 Node.js。请先安装 Node.js 18 或更高版本。',
+      };
+    }
+    if (!environment.node.supported) {
+      return {
+        success: false,
+        error: `当前 Node.js 版本为 ${environment.node.version}，需要 18 或更高版本。`,
+      };
+    }
+
+    await runtimeLib.installPnpm();
+    const refreshed = await runtimeLib.inspectEnvironment();
+    if (!refreshed.pnpm.installed) {
+      return {
+        success: false,
+        error: 'pnpm 安装完成后仍未检测到 pnpm，请检查 npm 全局目录与 PATH 设置。',
+      };
+    }
+
+    return {
+      success: true,
+      version: refreshed.pnpm.version,
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error: err.message,
     };
   }
 });
