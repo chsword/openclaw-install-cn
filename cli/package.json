@@ -1,6 +1,6 @@
 {
   "name": "openclaw-install-cn",
-  "version": "1.0.3",
+  "version": "1.0.20",
   "description": "OpenClaw installer and updater for China mainland / restricted networks - installs from CDN without npm/GitHub access",
   "main": "src/index.js",
   "bin": {
@@ -15,10 +15,10 @@
     "lint": "eslint src/ bin/",
     "build": "npm run build:bin",
     "build:bin": "npm run build:win && npm run build:mac-x64 && npm run build:mac-arm64 && npm run build:linux",
-    "build:win":      "pkg . -t node18-win-x64      -o dist/oclaw-win-x64.exe",
-    "build:mac-x64":  "pkg . -t node18-macos-x64    -o dist/oclaw-darwin-x64",
-    "build:mac-arm64":"pkg . -t node18-macos-arm64   -o dist/oclaw-darwin-arm64",
-    "build:linux":    "pkg . -t node18-linux-x64     -o dist/oclaw-linux-x64"
+    "build:win": "pkg . -t node18-win-x64      -o dist/oclaw-win-x64.exe",
+    "build:mac-x64": "pkg . -t node18-macos-x64    -o dist/oclaw-darwin-x64",
+    "build:mac-arm64": "pkg . -t node18-macos-arm64   -o dist/oclaw-darwin-arm64",
+    "build:linux": "pkg . -t node18-linux-x64     -o dist/oclaw-linux-x64"
   },
   "keywords": [
     "openclaw",
