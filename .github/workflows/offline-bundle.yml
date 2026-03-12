@@ -119,36 +119,57 @@ jobs:
           echo "$RELEASE_JSON" | python3 -c "
           import os, sys, json
           version = os.environ['VERSION']
-          required = [
-              'oclaw-win-x64.exe',
-              'oclaw-darwin-x64',
-              'oclaw-darwin-arm64',
-              'oclaw-linux-x64',
-              f'openclaw-gui-setup-{version}-x64.exe',
-              f'openclaw-gui-{version}-win-x64.exe',
-              f'openclaw-gui-{version}-mac-x64.dmg',
-              f'openclaw-gui-{version}-mac-arm64.dmg',
-              f'openclaw-gui-{version}-linux-x64.AppImage',
-              'install.sh',
-              'install.ps1',
-          ]
           assets = {a['name']: a['browser_download_url'] for a in json.load(sys.stdin).get('assets', [])}
-          missing = [name for name in required if name not in assets]
+          required = {
+            'oclaw-win-x64.exe': ['oclaw-win-x64.exe'],
+            'oclaw-darwin-x64': ['oclaw-darwin-x64'],
+            'oclaw-darwin-arm64': ['oclaw-darwin-arm64'],
+            'oclaw-linux-x64': ['oclaw-linux-x64'],
+            f'openclaw-gui-setup-{version}-x64.exe': [
+              f'openclaw-gui-setup-{version}-x64.exe',
+            ],
+            f'openclaw-gui-{version}-win-x64.exe': [
+              f'openclaw-gui-{version}-win-x64.exe',
+              f'openclaw-gui-{version}-win32-x64.exe',
+            ],
+            f'openclaw-gui-{version}-mac-x64.dmg': [
+              f'openclaw-gui-{version}-mac-x64.dmg',
+              f'openclaw-gui-{version}-darwin-x64.dmg',
+            ],
+            f'openclaw-gui-{version}-mac-arm64.dmg': [
+              f'openclaw-gui-{version}-mac-arm64.dmg',
+              f'openclaw-gui-{version}-darwin-arm64.dmg',
+            ],
+            f'openclaw-gui-{version}-linux-x64.AppImage': [
+              f'openclaw-gui-{version}-linux-x64.AppImage',
+              f'openclaw-gui-{version}-linux-x86_64.AppImage',
+            ],
+            'install.sh': ['install.sh'],
+            'install.ps1': ['install.ps1'],
+          }
+          selected = {}
+          missing = []
+          for canonical, candidates in required.items():
+            match = next((name for name in candidates if name in assets), None)
+            if match is None:
+              missing.append(canonical)
+            else:
+              selected[canonical] = assets[match]
           if missing:
               sys.stderr.write('Missing installer release assets:\n')
               for name in missing:
                   sys.stderr.write(f'  - {name}\n')
               sys.exit(1)
-          for name in required:
-              print(name + '|' + assets[name])
+          for canonical, url in selected.items():
+            print(canonical + '|' + url)
           " > /tmp/installer-assets.txt
 
-          while IFS='|' read -r name url; do
-            [ -z "$name" ] && continue
-            echo "  ↓ $name"
+          while IFS='|' read -r canonical url; do
+            [ -z "$canonical" ] && continue
+            echo "  ↓ $canonical"
             curl -fsSL -L \
               -H "Authorization: Bearer ${GH_TOKEN}" \
-              -o "installer-release/raw/$name" \
+              -o "installer-release/raw/$canonical" \
               "$url"
           done < /tmp/installer-assets.txt
 
