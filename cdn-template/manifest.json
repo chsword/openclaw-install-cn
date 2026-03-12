@@ -3,7 +3,7 @@
   "versions": [
     {
       "version": "2026.3.8",
-      "releaseDate": "2026-03-11",
+      "releaseDate": "2026-03-12",
       "description": "OpenClaw 2026.3.8",
       "files": {
         "win32-x64": "openclaw-2026.3.8-win32-x64.zip",
@@ -13,8 +13,8 @@
       },
       "checksums": {
         "win32-x64": "sha256:UNAVAILABLE",
-        "darwin-x64": "sha256:516dc813fb1d400fc0198761a71ca9f9f0912f23d2fa51a3a2aadf0b5bd55413",
-        "darwin-arm64": "sha256:516dc813fb1d400fc0198761a71ca9f9f0912f23d2fa51a3a2aadf0b5bd55413",
+        "darwin-x64": "sha256:b8be517f129209bc5b5ff3c7af29ed90ace8347aab44fe16b408caa98a64af96",
+        "darwin-arm64": "sha256:b8be517f129209bc5b5ff3c7af29ed90ace8347aab44fe16b408caa98a64af96",
         "linux-x64": "sha256:UNAVAILABLE"
       }
     },
