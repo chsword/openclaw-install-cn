@@ -226,24 +226,7 @@ jobs:
 
             if [ -z "$VERSION" ]; then
               echo "::warning::CDN manifest does not contain a latest version; falling back to repository manifest, then official latest release."
-              VERSION=$(python3 - <<'PYEOF'
-            import json
-            from pathlib import Path
-
-            manifest_path = Path('cdn-template/manifest.json')
-            if manifest_path.exists():
-              try:
-                with manifest_path.open('r', encoding='utf-8') as fh:
-                  manifest = json.load(fh)
-                latest = str(manifest.get('latest', '')).strip()
-                if latest:
-                  print(latest)
-                  raise SystemExit(0)
-              except Exception:
-                pass
-            print('')
-            PYEOF
-              )
+              VERSION=$(python3 -c "import json,pathlib; p=pathlib.Path('cdn-template/manifest.json'); data=json.loads(p.read_text(encoding='utf-8')) if p.exists() else {}; print(str(data.get('latest','')).strip())")
             fi
 
             if [ -z "$VERSION" ]; then
