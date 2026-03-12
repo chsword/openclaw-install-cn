@@ -8,14 +8,139 @@ on:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
+    inputs:
+      version:
+        description: '发布版本号，支持 1.2.3 或 v1.2.3；留空则基于当前最新版本自动递增 patch'
+        required: false
+        type: string
 
 permissions:
   contents: write   # needed to create releases and upload assets
 
 jobs:
+  resolve-version:
+    name: Resolve release version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      tag: ${{ steps.resolve.outputs.tag }}
+      source: ${{ steps.resolve.outputs.source }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release version
+        id: resolve
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          stable_re = re.compile(r'^v?(\d+)\.(\d+)\.(\d+)$')
+          semver_re = re.compile(r'^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$')
+
+          ref_type = os.environ.get('REF_TYPE', '')
+          ref_name = os.environ.get('REF_NAME', '')
+          input_version = (os.environ.get('INPUT_VERSION', '') or '').strip()
+
+          def emit(name, value):
+              with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as fh:
+                  fh.write(f'{name}={value}\n')
+
+          def normalize(version):
+              return version[1:] if version.startswith('v') else version
+
+          def stable_key(version):
+              match = stable_re.fullmatch(version)
+              if not match:
+                  return None
+              return tuple(int(part) for part in match.groups())
+
+          def latest_stable_candidate():
+              candidates = []
+
+              try:
+                  tag_output = subprocess.check_output(
+                      ['git', 'tag', '--list', 'v*'],
+                      text=True,
+                      stderr=subprocess.DEVNULL,
+                  )
+                  for raw_tag in tag_output.splitlines():
+                      tag = raw_tag.strip()
+                      key = stable_key(tag)
+                      if key:
+                          candidates.append((key, normalize(tag)))
+              except subprocess.CalledProcessError:
+                  pass
+
+              for path_str, field in [
+                  ('cli/package.json', 'version'),
+                  ('gui/package.json', 'version'),
+                  ('cdn-template/cli-manifest.json', 'latest'),
+              ]:
+                  path = Path(path_str)
+                  if not path.exists():
+                      continue
+                  try:
+                      with path.open('r', encoding='utf-8') as fh:
+                          data = json.load(fh)
+                      version = str(data.get(field, '')).strip()
+                  except Exception:
+                      continue
+                  key = stable_key(version)
+                  if key:
+                      candidates.append((key, normalize(version)))
+
+              if not candidates:
+                  return '0.0.0'
+
+              candidates.sort(key=lambda item: item[0])
+              return candidates[-1][1]
+
+          if ref_type == 'tag':
+              version = normalize(ref_name)
+              if not semver_re.fullmatch(version):
+                  print(f'Invalid tag version: {ref_name}', file=sys.stderr)
+                  sys.exit(1)
+              source = 'tag'
+          else:
+              if input_version:
+                  version = normalize(input_version)
+                  if not semver_re.fullmatch(version):
+                      print(
+                          f"Invalid manual version '{input_version}'. Expected semver like 1.2.3 or v1.2.3.",
+                          file=sys.stderr,
+                      )
+                      sys.exit(1)
+                  source = 'manual-input'
+              else:
+                  latest = latest_stable_candidate()
+                  major, minor, patch = stable_key(latest)
+                  version = f'{major}.{minor}.{patch + 1}'
+                  source = 'auto-increment'
+
+          tag = f'v{version}'
+          print(f'Resolved release version: {version} ({source})')
+          emit('version', version)
+          emit('tag', tag)
+          emit('source', source)
+          PY
+
   # ── 1. Run tests ────────────────────────────────────────────────────────────
   test:
     name: Test CLI
+    needs: resolve-version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -39,7 +164,7 @@ jobs:
   # ── 2. Build CLI binaries (all platforms cross-compiled on Linux) ──────────
   build-cli:
     name: Build CLI binaries
-    needs: test
+    needs: [resolve-version, test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -63,10 +188,10 @@ jobs:
         run: npm ci
         working-directory: cli
 
-      - name: Set version from tag
+      - name: Set release version
         id: ver
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${{ needs.resolve-version.outputs.version }}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Building version $VERSION"
 
@@ -109,7 +234,7 @@ jobs:
   # ── 3. Build GUI (all platforms via matrix) ────────────────────────────────
   build-gui:
     name: Build ${{ matrix.name }} GUI
-    needs: test
+    needs: [resolve-version, test]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -155,11 +280,11 @@ jobs:
           path: gui/node_modules
           key: ${{ runner.os }}-node20-gui-node-modules-${{ hashFiles('gui/package.json') }}
 
-      - name: Set version from tag
+      - name: Set release version
         id: ver
         shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${{ needs.resolve-version.outputs.version }}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Update GUI version in package.json
@@ -199,7 +324,7 @@ jobs:
   # ── 4. Create GitHub Release ────────────────────────────────────────────────
   release:
     name: Create GitHub Release
-    needs: [build-cli, build-gui]
+    needs: [resolve-version, build-cli, build-gui]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -207,9 +332,9 @@ jobs:
       - name: Extract version
         id: ver
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${{ needs.resolve-version.outputs.version }}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          echo "tag=${{ needs.resolve-version.outputs.tag }}" >> "$GITHUB_OUTPUT"
 
       - name: Download CLI binaries
         uses: actions/download-artifact@v8
@@ -466,16 +591,18 @@ jobs:
           见附件 \`checksums.sha256\`
 
           ---
-          详细部署文档：[docs/deployment.md](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/docs/deployment.md)
+          详细部署文档：[docs/deployment.md](https://github.com/${{ github.repository }}/blob/${{ steps.ver.outputs.tag }}/docs/deployment.md)
           NOTES
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2.5.0
         with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           name: "OpenClaw Installer ${{ steps.ver.outputs.tag }}"
           body_path: /tmp/release-notes.md
           draft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ contains(steps.ver.outputs.version, '-') }}
           fail_on_unmatched_files: false
           files: |
             artifacts/cli/oclaw-win-x64.exe
@@ -511,7 +638,7 @@ jobs:
   # ── 5. Upload to Tencent COS (official CDN) ────────────────────────────────
   deploy-to-cos:
     name: Upload to Tencent COS
-    needs: release
+    needs: [resolve-version, release]
     runs-on: ubuntu-latest
     environment: TencentSecretId
     steps:
@@ -520,7 +647,7 @@ jobs:
       - name: Extract version
         id: ver
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${{ needs.resolve-version.outputs.version }}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       # Reuse the cdn-packages and updated manifests built by the release job
@@ -654,3 +781,48 @@ jobs:
           echo "Purging CDN URLs: $URLS"
           tccli cdn PurgeUrlsCache --Urls "$URLS"
           echo "CDN cache purge submitted successfully"
+
+  persist-version:
+    name: Record latest version
+    needs: [resolve-version, release, deploy-to-cos]
+    if: github.event_name == 'workflow_dispatch' && github.ref_type == 'branch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+
+      - name: Download CDN manifests
+        uses: actions/download-artifact@v8
+        with:
+          name: cdn-manifests
+          path: cdn-template/
+
+      - name: Update tracked version files
+        shell: bash
+        run: |
+          VERSION="${{ needs.resolve-version.outputs.version }}"
+          cd cli
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          cd ../gui
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+
+      - name: Commit latest version metadata
+        shell: bash
+        run: |
+          VERSION="${{ needs.resolve-version.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add cli/package.json gui/package.json cdn-template/cli-manifest.json
+          if git diff --cached --quiet; then
+            echo "No version metadata changes to commit"
+            exit 0
+          fi
+          git commit -m "chore: record release version v${VERSION}"
+          git push origin "HEAD:${{ github.ref_name }}"
