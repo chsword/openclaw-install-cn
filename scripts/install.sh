@@ -433,10 +433,16 @@ process.stdin.on('end',()=>{
   info "Extracting…"
   tar -xzf "$pkg_path" -C "$tmp_dir"
 
-  # Install CLI binary
+  # Install CLI binary.
+  # Canonical name used by packages built with the current release workflow.
+  # Older packages (e.g. v1.0.19) used the platform-specific name, so fall back.
   local bin_src="$tmp_dir/oclaw"
   [ -f "$bin_src" ] || bin_src="$tmp_dir/bin/oclaw"
-  [ -f "$bin_src" ] || die "Could not find oclaw binary in downloaded package."
+  [ -f "$bin_src" ] || bin_src="$tmp_dir/oclaw-${os_name}-${arch_name}"
+  if [ ! -f "$bin_src" ]; then
+    verbose "Extracted contents: $(ls -1 "$tmp_dir" 2>/dev/null || echo '(empty)')"
+    die "Could not find oclaw binary in downloaded package."
+  fi
 
   chmod +x "$bin_src"
   cp "$bin_src" "$OCLAW_BIN_DIR/oclaw"
@@ -529,7 +535,11 @@ _install_from_local_bundle() {
 
   local bin_src="$tmp_dir/oclaw"
   [ -f "$bin_src" ] || bin_src="$tmp_dir/bin/oclaw"
-  [ -f "$bin_src" ] || die "Could not find oclaw binary in CLI package."
+  [ -f "$bin_src" ] || bin_src="$tmp_dir/oclaw-${os_name}-${arch_name}"  # legacy fallback
+  if [ ! -f "$bin_src" ]; then
+    verbose "Extracted contents: $(ls -1 "$tmp_dir" 2>/dev/null || echo '(empty)')"
+    die "Could not find oclaw binary in CLI package."
+  fi
 
   chmod +x "$bin_src"
   cp "$bin_src" "$OCLAW_BIN_DIR/oclaw"
