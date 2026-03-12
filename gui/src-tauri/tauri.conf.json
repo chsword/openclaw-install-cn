@@ -4,8 +4,7 @@
   "version": "1.0.23",
   "identifier": "ai.openclaw.installer",
   "build": {
-    "frontendDist": "../src/renderer",
-    "devtools": true
+    "frontendDist": "../src/renderer"
   },
   "app": {
     "windows": [
