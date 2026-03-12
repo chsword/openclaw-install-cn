@@ -3,13 +3,13 @@ name: Build Offline Bundle
 # Builds a full offline installation bundle for OpenClaw.
 # Users can download and install without any internet access.
 #
-# The bundle mirrors the CDN layout expected by install.sh and install.ps1:
+# The bundle contains only the installer-side binaries plus one selected
+# OpenClaw offline package set:
 #   openclaw-bundle/
-#     cli-manifest.json
-#     cli/{cli-ver}/oclaw-{cli-ver}-{os}-{arch}.{ext}
-#     manifest.json
-#     pkg/{openclaw-ver}/openclaw-{openclaw-ver}-{os}-{arch}.{ext}
-#     gui/{installer-ver}/openclaw-gui-*
+#     manifest.json        ← downloaded from CDN (maintained by sync-openclaw)
+#     oclaw/oclaw-*
+#     gui/openclaw-gui-*
+#     {openclaw-ver}/openclaw-{openclaw-ver}-{os}-{arch}.{ext}
 #     install.sh           ← convenience copy of the bootstrap script
 #     install.ps1          ← convenience copy of the bootstrap script
 #
@@ -21,8 +21,6 @@ name: Build Offline Bundle
 #   2. openclaw/openclaw official GitHub Release:
 #      - OpenClaw application packages
 #   3. Workflow-generated metadata:
-#      - cli-manifest.json
-#      - manifest.json
 #      - final offline bundle zip files and checksums
 #
 # Usage after extracting the downloaded zip:
@@ -39,8 +37,8 @@ name: Build Offline Bundle
 #
 # Version resolution:
 #   - Installer version defaults to the latest semver GitHub Release in this repository.
-#   - OpenClaw version defaults to the latest version tracked by sync-openclaw
-#     in cdn-template/manifest.json, then fetches that exact upstream release.
+#   - OpenClaw version defaults to the latest version published on CDN by
+#     sync-openclaw, then fetches that exact upstream release.
 on:
   workflow_dispatch:
     inputs:
@@ -106,10 +104,10 @@ jobs:
           TAG: ${{ steps.ver.outputs.tag }}
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          # Pull installer-side files from this repository's GitHub Release,
-          # then reshape the CLI binaries into the local-bundle layout expected
-          # by install.sh / install.ps1.
-          mkdir -p installer-release/raw cli-packages gui-packages bundle-scripts
+          # Pull installer-side files from this repository's GitHub Release.
+          # The offline bundle stores oclaw binaries directly under oclaw/
+          # and GUI installers directly under gui/.
+          mkdir -p installer-release/raw oclaw-binaries gui-packages bundle-scripts
 
           RELEASE_JSON=$(curl -fsSL \
             -H "Authorization: Bearer ${GH_TOKEN}" \
@@ -128,21 +126,21 @@ jobs:
             f'openclaw-gui-setup-{version}-x64.exe': [
               f'openclaw-gui-setup-{version}-x64.exe',
             ],
-            f'openclaw-gui-{version}-win-x64.exe': [
-              f'openclaw-gui-{version}-win-x64.exe',
+            f'openclaw-gui-{version}-win32-x64.exe': [
               f'openclaw-gui-{version}-win32-x64.exe',
+              f'openclaw-gui-{version}-win-x64.exe',
             ],
-            f'openclaw-gui-{version}-mac-x64.dmg': [
-              f'openclaw-gui-{version}-mac-x64.dmg',
+            f'openclaw-gui-{version}-darwin-x64.dmg': [
               f'openclaw-gui-{version}-darwin-x64.dmg',
+              f'openclaw-gui-{version}-mac-x64.dmg',
             ],
-            f'openclaw-gui-{version}-mac-arm64.dmg': [
-              f'openclaw-gui-{version}-mac-arm64.dmg',
+            f'openclaw-gui-{version}-darwin-arm64.dmg': [
               f'openclaw-gui-{version}-darwin-arm64.dmg',
+              f'openclaw-gui-{version}-mac-arm64.dmg',
             ],
-            f'openclaw-gui-{version}-linux-x64.AppImage': [
-              f'openclaw-gui-{version}-linux-x64.AppImage',
+            f'openclaw-gui-{version}-linux-x86_64.AppImage': [
               f'openclaw-gui-{version}-linux-x86_64.AppImage',
+              f'openclaw-gui-{version}-linux-x64.AppImage',
             ],
             'install.sh': ['install.sh'],
             'install.ps1': ['install.ps1'],
@@ -176,79 +174,24 @@ jobs:
           cp installer-release/raw/install.sh bundle-scripts/install.sh
           cp installer-release/raw/install.ps1 bundle-scripts/install.ps1
 
-          cp installer-release/raw/oclaw-win-x64.exe installer-release/raw/oclaw.exe
-          (cd installer-release/raw && zip "$OLDPWD/cli-packages/oclaw-${VERSION}-win32-x64.zip" oclaw.exe)
+            cp installer-release/raw/oclaw-win-x64.exe oclaw-binaries/
+            cp installer-release/raw/oclaw-darwin-x64 oclaw-binaries/
+            cp installer-release/raw/oclaw-darwin-arm64 oclaw-binaries/
+            cp installer-release/raw/oclaw-linux-x64 oclaw-binaries/
+            chmod +x oclaw-binaries/oclaw-darwin-x64 oclaw-binaries/oclaw-darwin-arm64 oclaw-binaries/oclaw-linux-x64
 
-          cp installer-release/raw/oclaw-darwin-x64 installer-release/raw/oclaw
-          chmod +x installer-release/raw/oclaw
-          (cd installer-release/raw && tar -czf "$OLDPWD/cli-packages/oclaw-${VERSION}-darwin-x64.tar.gz" oclaw)
-
-          cp installer-release/raw/oclaw-darwin-arm64 installer-release/raw/oclaw
-          chmod +x installer-release/raw/oclaw
-          (cd installer-release/raw && tar -czf "$OLDPWD/cli-packages/oclaw-${VERSION}-darwin-arm64.tar.gz" oclaw)
-
-          cp installer-release/raw/oclaw-linux-x64 installer-release/raw/oclaw
-          chmod +x installer-release/raw/oclaw
-          (cd installer-release/raw && tar -czf "$OLDPWD/cli-packages/oclaw-${VERSION}-linux-x64.tar.gz" oclaw)
-
-          cp installer-release/raw/openclaw-gui-setup-${VERSION}-x64.exe gui-packages/
-          cp installer-release/raw/openclaw-gui-${VERSION}-win-x64.exe gui-packages/
-          cp installer-release/raw/openclaw-gui-${VERSION}-mac-x64.dmg gui-packages/
-          cp installer-release/raw/openclaw-gui-${VERSION}-mac-arm64.dmg gui-packages/
-          cp installer-release/raw/openclaw-gui-${VERSION}-linux-x64.AppImage gui-packages/
-
-      - name: Generate cli-manifest.json for bundle
-        env:
-          VERSION: ${{ steps.ver.outputs.version }}
-        run: |
-          python3 - <<'PYEOF'
-          import json, hashlib, datetime, os
-
-          def sha256_file(path):
-              h = hashlib.sha256()
-              with open(path, 'rb') as f:
-                  for chunk in iter(lambda: f.read(65536), b''):
-                      h.update(chunk)
-              return h.hexdigest()
-
-          version = os.environ['VERSION']
-          d = 'cli-packages'
-          checksums = {}
-          for plat, ext in [
-              ('win32-x64', 'zip'),
-              ('darwin-x64', 'tar.gz'),
-              ('darwin-arm64', 'tar.gz'),
-              ('linux-x64', 'tar.gz'),
-          ]:
-              path = f'{d}/oclaw-{version}-{plat}.{ext}'
-              checksums[plat] = 'sha256:' + sha256_file(path) if os.path.exists(path) else 'sha256:UNAVAILABLE'
-
-          manifest = {
-              'latest': version,
-              'versions': [{
-                  'version': version,
-                  'releaseDate': datetime.date.today().isoformat(),
-                  'files': {
-                      'win32-x64': f'oclaw-{version}-win32-x64.zip',
-                      'darwin-x64': f'oclaw-{version}-darwin-x64.tar.gz',
-                      'darwin-arm64': f'oclaw-{version}-darwin-arm64.tar.gz',
-                      'linux-x64': f'oclaw-{version}-linux-x64.tar.gz',
-                  },
-                  'checksums': checksums,
-              }],
-          }
-          with open(f'{d}/cli-manifest.json', 'w', encoding='utf-8') as f:
-              json.dump(manifest, f, indent=2, ensure_ascii=False)
-              f.write('\n')
-          print(json.dumps(manifest, indent=2, ensure_ascii=False))
-          PYEOF
+            cp installer-release/raw/openclaw-gui-setup-${VERSION}-x64.exe gui-packages/
+            cp installer-release/raw/openclaw-gui-${VERSION}-win32-x64.exe gui-packages/
+            cp installer-release/raw/openclaw-gui-${VERSION}-darwin-x64.dmg gui-packages/
+            cp installer-release/raw/openclaw-gui-${VERSION}-darwin-arm64.dmg gui-packages/
+            cp installer-release/raw/openclaw-gui-${VERSION}-linux-x86_64.AppImage gui-packages/
 
       - name: Upload installer assets artifact
         uses: actions/upload-artifact@v7
         with:
           name: offline-installer-assets
           path: |
-            cli-packages/
+            oclaw-binaries/
             gui-packages/
             bundle-scripts/
           retention-days: 1
@@ -276,29 +219,34 @@ jobs:
             VERSION="${{ inputs.openclaw_version }}"
             VERSION="${VERSION#v}"
           else
-            # Use the version track already published by sync-openclaw, then
-            # fetch that exact upstream release from openclaw/openclaw.
-            VERSION=$(python3 - <<'PYEOF'
-          import json
-          from pathlib import Path
-
-          manifest_path = Path('cdn-template/manifest.json')
-          if manifest_path.exists():
-              try:
-                  with manifest_path.open('r', encoding='utf-8') as fh:
-                      manifest = json.load(fh)
-                  latest = str(manifest.get('latest', '')).strip()
-                  if latest:
-                      print(latest)
-                      raise SystemExit(0)
-              except Exception:
-                  pass
-          print('')
-          PYEOF
-            )
+            # Use the version track already published on CDN by sync-openclaw,
+            # then fetch that exact upstream release from openclaw/openclaw.
+            VERSION=$(curl -fsSL https://oclaw.chatu.plus/manifest.json \
+              | python3 -c "import sys,json; data=json.load(sys.stdin); print(str(data.get('latest','')).strip())")
 
             if [ -z "$VERSION" ]; then
-              echo "::warning::cdn-template/manifest.json does not contain a latest version; falling back to official latest release."
+              echo "::warning::CDN manifest does not contain a latest version; falling back to repository manifest, then official latest release."
+              VERSION=$(python3 - <<'PYEOF'
+            import json
+            from pathlib import Path
+
+            manifest_path = Path('cdn-template/manifest.json')
+            if manifest_path.exists():
+              try:
+                with manifest_path.open('r', encoding='utf-8') as fh:
+                  manifest = json.load(fh)
+                latest = str(manifest.get('latest', '')).strip()
+                if latest:
+                  print(latest)
+                  raise SystemExit(0)
+              except Exception:
+                pass
+            print('')
+            PYEOF
+              )
+            fi
+
+            if [ -z "$VERSION" ]; then
               TAG=$(curl -fsSL \
                 -H "Authorization: Bearer ${GH_TOKEN}" \
                 -H "Accept: application/vnd.github+json" \
@@ -311,6 +259,30 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "OpenClaw version: $VERSION"
+
+      - name: Download CDN manifest.json
+        env:
+          VERSION: ${{ steps.detect.outputs.version }}
+        run: |
+          mkdir -p openclaw-packages
+          curl -fsSL https://oclaw.chatu.plus/manifest.json -o openclaw-packages/manifest.json || cp cdn-template/manifest.json openclaw-packages/manifest.json
+
+          python3 - <<'PYEOF'
+          import json, os, sys
+
+          version = os.environ['VERSION']
+          with open('openclaw-packages/manifest.json', 'r', encoding='utf-8') as fh:
+              manifest = json.load(fh)
+
+          versions = {entry.get('version'): entry for entry in manifest.get('versions', [])}
+          if version not in versions:
+              print(f'ERROR: version {version} not found in CDN manifest.json', file=sys.stderr)
+              sys.exit(1)
+
+          print(f'CDN manifest latest: {manifest.get("latest", "")}')
+          print(f'Using version entry: {version}')
+          print(json.dumps(versions[version], indent=2, ensure_ascii=False))
+          PYEOF
 
       - name: Cache upstream OpenClaw assets
         uses: actions/cache@v4
@@ -464,59 +436,14 @@ jobs:
           echo "=== openclaw-packages/ ==="
           ls -lh openclaw-packages/ || echo "  (empty)"
 
-      - name: Generate manifest.json for bundle
-        env:
-          VERSION: ${{ steps.detect.outputs.version }}
-        run: |
-          python3 - <<'PYEOF'
-          import json, os, hashlib, datetime
-
-          def sha256_file(path):
-              h = hashlib.sha256()
-              with open(path, 'rb') as f:
-                  for chunk in iter(lambda: f.read(65536), b''):
-                      h.update(chunk)
-              return h.hexdigest()
-
-          def checksum_for(path):
-              if os.path.exists(path):
-                  return 'sha256:' + sha256_file(path)
-              return 'sha256:UNAVAILABLE'
-
-          version = os.environ['VERSION']
-          d = 'openclaw-packages'
-          checksums = {
-              'win32-x64':    checksum_for(f'{d}/openclaw-{version}-win32-x64.zip'),
-              'darwin-x64':   checksum_for(f'{d}/openclaw-{version}-darwin-x64.tar.gz'),
-              'darwin-arm64': checksum_for(f'{d}/openclaw-{version}-darwin-arm64.tar.gz'),
-              'linux-x64':    checksum_for(f'{d}/openclaw-{version}-linux-x64.tar.gz'),
-          }
-          manifest = {
-              'latest': version,
-              'versions': [{
-                  'version':     version,
-                  'releaseDate': datetime.date.today().isoformat(),
-                  'description': f'OpenClaw {version}',
-                  'files': {
-                      'win32-x64':    f'openclaw-{version}-win32-x64.zip',
-                      'darwin-x64':   f'openclaw-{version}-darwin-x64.tar.gz',
-                      'darwin-arm64': f'openclaw-{version}-darwin-arm64.tar.gz',
-                      'linux-x64':    f'openclaw-{version}-linux-x64.tar.gz',
-                  },
-                  'checksums': checksums,
-              }]
-          }
-          with open(f'{d}/manifest.json', 'w') as f:
-              json.dump(manifest, f, indent=2, ensure_ascii=False)
-              f.write('\n')
-          print(json.dumps(manifest, indent=2))
-          PYEOF
-
       - name: Upload OpenClaw packages artifact
         uses: actions/upload-artifact@v7
         with:
           name: offline-openclaw-packages
-          path: openclaw-packages/
+          path: |
+            openclaw-packages/manifest.json
+            openclaw-packages/openclaw-*.zip
+            openclaw-packages/openclaw-*.tar.gz
           retention-days: 1
 
   # ── 4. Assemble and publish the offline bundle ──────────────────────────────
@@ -547,23 +474,22 @@ jobs:
           OC_VER="$OPENCLAW_VERSION"
           BUNDLE="openclaw-bundle"
 
-          mkdir -p "$BUNDLE/cli/${CLI_VER}" "$BUNDLE/pkg/${OC_VER}" "$BUNDLE/gui/${CLI_VER}"
-
-          # CLI manifest and packages
-          cp installer-assets/cli-packages/cli-manifest.json "$BUNDLE/cli-manifest.json"
-          for f in installer-assets/cli-packages/oclaw-*.zip installer-assets/cli-packages/oclaw-*.tar.gz; do
-            [ -f "$f" ] && cp "$f" "$BUNDLE/cli/${CLI_VER}/"
-          done
+          mkdir -p "$BUNDLE/oclaw" "$BUNDLE/gui" "$BUNDLE/${OC_VER}"
 
           # OpenClaw manifest and packages
           cp openclaw-packages/manifest.json "$BUNDLE/manifest.json"
           for f in openclaw-packages/openclaw-*.zip openclaw-packages/openclaw-*.tar.gz; do
-            [ -f "$f" ] && cp "$f" "$BUNDLE/pkg/${OC_VER}/"
+            [ -f "$f" ] && cp "$f" "$BUNDLE/${OC_VER}/"
+          done
+
+          # oclaw binaries
+          for f in installer-assets/oclaw-binaries/*; do
+            [ -f "$f" ] && cp "$f" "$BUNDLE/oclaw/"
           done
 
           # GUI installers
           find installer-assets/gui-packages/ -type f \( -name "*.exe" -o -name "*.dmg" -o -name "*.AppImage" \) | while read -r f; do
-            cp "$f" "$BUNDLE/gui/${CLI_VER}/"
+            cp "$f" "$BUNDLE/gui/"
           done
 
           # Bootstrap scripts (convenience copies so users can install from within the bundle)
@@ -583,24 +509,23 @@ jobs:
 
           for plat in win32-x64 darwin-x64 darwin-arm64 linux-x64; do
             PLAT_BUNDLE="openclaw-bundle-${plat}"
-            mkdir -p "$PLAT_BUNDLE/cli/${CLI_VER}" "$PLAT_BUNDLE/pkg/${OC_VER}" "$PLAT_BUNDLE/gui/${CLI_VER}"
+            mkdir -p "$PLAT_BUNDLE/oclaw" "$PLAT_BUNDLE/gui" "$PLAT_BUNDLE/${OC_VER}"
 
             # Shared files
-            cp openclaw-bundle/cli-manifest.json "$PLAT_BUNDLE/"
             cp openclaw-bundle/manifest.json     "$PLAT_BUNDLE/"
             cp openclaw-bundle/install.sh        "$PLAT_BUNDLE/" 2>/dev/null || true
             cp openclaw-bundle/install.ps1       "$PLAT_BUNDLE/" 2>/dev/null || true
 
-            # Platform-specific CLI package
+            # Platform-specific oclaw binary
             case "$plat" in
-              win32-x64)    cli_pkg="oclaw-${CLI_VER}-win32-x64.zip" ;;
-              darwin-x64)   cli_pkg="oclaw-${CLI_VER}-darwin-x64.tar.gz" ;;
-              darwin-arm64) cli_pkg="oclaw-${CLI_VER}-darwin-arm64.tar.gz" ;;
-              linux-x64)    cli_pkg="oclaw-${CLI_VER}-linux-x64.tar.gz" ;;
+              win32-x64)    cli_pkg="oclaw-win-x64.exe" ;;
+              darwin-x64)   cli_pkg="oclaw-darwin-x64" ;;
+              darwin-arm64) cli_pkg="oclaw-darwin-arm64" ;;
+              linux-x64)    cli_pkg="oclaw-linux-x64" ;;
             esac
-            src="openclaw-bundle/cli/${CLI_VER}/${cli_pkg}"
-            [ -f "$src" ] && cp "$src" "$PLAT_BUNDLE/cli/${CLI_VER}/" \
-              || echo "WARNING: CLI package not found: $src"
+            src="openclaw-bundle/oclaw/${cli_pkg}"
+            [ -f "$src" ] && cp "$src" "$PLAT_BUNDLE/oclaw/" \
+              || echo "WARNING: oclaw binary not found: $src"
 
             # Platform-specific OpenClaw package
             case "$plat" in
@@ -609,33 +534,33 @@ jobs:
               darwin-arm64) oc_pkg="openclaw-${OC_VER}-darwin-arm64.tar.gz" ;;
               linux-x64)    oc_pkg="openclaw-${OC_VER}-linux-x64.tar.gz" ;;
             esac
-            src="openclaw-bundle/pkg/${OC_VER}/${oc_pkg}"
-            [ -f "$src" ] && cp "$src" "$PLAT_BUNDLE/pkg/${OC_VER}/" \
+            src="openclaw-bundle/${OC_VER}/${oc_pkg}"
+            [ -f "$src" ] && cp "$src" "$PLAT_BUNDLE/${OC_VER}/" \
               || echo "WARNING: OpenClaw package not found: $src"
 
             # Platform-specific GUI installer(s)
             case "$plat" in
               win32-x64)
                 for gui_src in \
-                  "openclaw-bundle/gui/${CLI_VER}/openclaw-gui-setup-${CLI_VER}-x64.exe" \
-                  "openclaw-bundle/gui/${CLI_VER}/openclaw-gui-${CLI_VER}-win-x64.exe"; do
-                  [ -f "$gui_src" ] && cp "$gui_src" "$PLAT_BUNDLE/gui/${CLI_VER}/" \
+                  "openclaw-bundle/gui/openclaw-gui-setup-${CLI_VER}-x64.exe" \
+                  "openclaw-bundle/gui/openclaw-gui-${CLI_VER}-win32-x64.exe"; do
+                  [ -f "$gui_src" ] && cp "$gui_src" "$PLAT_BUNDLE/gui/" \
                     || echo "WARNING: GUI installer not found: $gui_src"
                 done
                 ;;
               darwin-x64)
-                gui_src="openclaw-bundle/gui/${CLI_VER}/openclaw-gui-${CLI_VER}-mac-x64.dmg"
-                [ -f "$gui_src" ] && cp "$gui_src" "$PLAT_BUNDLE/gui/${CLI_VER}/" \
+                gui_src="openclaw-bundle/gui/openclaw-gui-${CLI_VER}-darwin-x64.dmg"
+                [ -f "$gui_src" ] && cp "$gui_src" "$PLAT_BUNDLE/gui/" \
                   || echo "WARNING: GUI installer not found: $gui_src"
                 ;;
               darwin-arm64)
-                gui_src="openclaw-bundle/gui/${CLI_VER}/openclaw-gui-${CLI_VER}-mac-arm64.dmg"
-                [ -f "$gui_src" ] && cp "$gui_src" "$PLAT_BUNDLE/gui/${CLI_VER}/" \
+                gui_src="openclaw-bundle/gui/openclaw-gui-${CLI_VER}-darwin-arm64.dmg"
+                [ -f "$gui_src" ] && cp "$gui_src" "$PLAT_BUNDLE/gui/" \
                   || echo "WARNING: GUI installer not found: $gui_src"
                 ;;
               linux-x64)
-                gui_src="openclaw-bundle/gui/${CLI_VER}/openclaw-gui-${CLI_VER}-linux-x64.AppImage"
-                [ -f "$gui_src" ] && cp "$gui_src" "$PLAT_BUNDLE/gui/${CLI_VER}/" \
+                gui_src="openclaw-bundle/gui/openclaw-gui-${CLI_VER}-linux-x86_64.AppImage"
+                [ -f "$gui_src" ] && cp "$gui_src" "$PLAT_BUNDLE/gui/" \
                   || echo "WARNING: GUI installer not found: $gui_src"
                 ;;
             esac
@@ -719,34 +644,52 @@ jobs:
                       else:
                           print(f'  OK  checksum for {plat}: {cs[:16]}...')
 
-          # 3. Verify cli-manifest.json structure and version
-          print('\n=== Checking cli-manifest.json ===')
-          cli_manifest_path = 'openclaw-bundle/cli-manifest.json'
-          if not os.path.exists(cli_manifest_path):
-              errors.append(f'MISSING: {cli_manifest_path}')
-          else:
-              with open(cli_manifest_path) as fh:
-                  cli_manifest = json.load(fh)
-              if cli_manifest.get('latest') != cli_ver:
-                  errors.append(
-                      f'cli-manifest.json: latest="{cli_manifest.get("latest")}" '
-                      f'!= expected "{cli_ver}"'
-                  )
-              else:
-                  print(f'  OK  latest = {cli_ver}')
-              cli_versions = cli_manifest.get('versions', [])
-              if not cli_versions:
-                  errors.append('cli-manifest.json: "versions" array is empty')
-              else:
-                  cli_checksums = cli_versions[0].get('checksums', {})
-                  for plat in platforms:
-                      cs = cli_checksums.get(plat, '')
-                      if not cs.startswith('sha256:') or cs == 'sha256:UNAVAILABLE':
-                          errors.append(
-                              f'cli-manifest.json: missing/invalid checksum for {plat}: "{cs}"'
-                          )
-                      else:
-                          print(f'  OK  checksum for {plat}: {cs[:16]}...')
+            # 3. Verify the selected platform files exist in each per-platform bundle
+            print('\n=== Checking per-platform bundle contents ===')
+            for plat in platforms:
+              base = f'openclaw-bundle-{plat}'
+              required = {
+                'win32-x64': [
+                  'manifest.json',
+                  'install.sh',
+                  'install.ps1',
+                  'oclaw/oclaw-win-x64.exe',
+                  f'{oc_ver}/openclaw-{oc_ver}-win32-x64.zip',
+                  f'gui/openclaw-gui-setup-{cli_ver}-x64.exe',
+                  f'gui/openclaw-gui-{cli_ver}-win32-x64.exe',
+                ],
+                'darwin-x64': [
+                  'manifest.json',
+                  'install.sh',
+                  'install.ps1',
+                  'oclaw/oclaw-darwin-x64',
+                  f'{oc_ver}/openclaw-{oc_ver}-darwin-x64.tar.gz',
+                  f'gui/openclaw-gui-{cli_ver}-darwin-x64.dmg',
+                ],
+                'darwin-arm64': [
+                  'manifest.json',
+                  'install.sh',
+                  'install.ps1',
+                  'oclaw/oclaw-darwin-arm64',
+                  f'{oc_ver}/openclaw-{oc_ver}-darwin-arm64.tar.gz',
+                  f'gui/openclaw-gui-{cli_ver}-darwin-arm64.dmg',
+                ],
+                'linux-x64': [
+                  'manifest.json',
+                  'install.sh',
+                  'install.ps1',
+                  'oclaw/oclaw-linux-x64',
+                  f'{oc_ver}/openclaw-{oc_ver}-linux-x64.tar.gz',
+                  f'gui/openclaw-gui-{cli_ver}-linux-x86_64.AppImage',
+                ],
+              }[plat]
+
+              for rel in required:
+                path = os.path.join(base, rel)
+                if not os.path.exists(path):
+                  errors.append(f'MISSING: {path}')
+                else:
+                  print(f'  OK  {path}')
 
           # Summary
           if errors:
@@ -767,13 +710,13 @@ jobs:
           import sys
 
           cli_ver = os.environ['CLI_VERSION']
-          base = os.path.join('openclaw-bundle', 'gui', cli_ver)
+            base = os.path.join('openclaw-bundle', 'gui')
           expected = [
               f'openclaw-gui-setup-{cli_ver}-x64.exe',
-              f'openclaw-gui-{cli_ver}-win-x64.exe',
-              f'openclaw-gui-{cli_ver}-mac-x64.dmg',
-              f'openclaw-gui-{cli_ver}-mac-arm64.dmg',
-              f'openclaw-gui-{cli_ver}-linux-x64.AppImage',
+              f'openclaw-gui-{cli_ver}-win32-x64.exe',
+              f'openclaw-gui-{cli_ver}-darwin-x64.dmg',
+              f'openclaw-gui-{cli_ver}-darwin-arm64.dmg',
+              f'openclaw-gui-{cli_ver}-linux-x86_64.AppImage',
           ]
 
           missing = [name for name in expected if not os.path.exists(os.path.join(base, name))]
@@ -798,9 +741,9 @@ jobs:
 
             文件来源分为三部分：
 
-            - 当前仓库的 installer GitHub Release：CLI、GUI、安装脚本
+            - 当前仓库的 installer GitHub Release：oclaw、GUI、安装脚本
             - openclaw/openclaw 官方 GitHub Release：OpenClaw 主程序包
-            - 本工作流运行时生成：bundle 内部 manifest 与校验和
+            - 本工作流运行时生成：离线压缩包与校验和
 
             ### 📦 包内组件
 
@@ -814,10 +757,10 @@ jobs:
 
             | 内容 | 来源 |
             |------|------|
-            | `cli/*` | 当前仓库 installer GitHub Release 附件二次打包 |
+            | `oclaw/*` | 当前仓库 installer GitHub Release 附件 |
             | `gui/*` | 当前仓库 installer GitHub Release 附件 |
-            | `pkg/*` | `openclaw/openclaw` 官方 GitHub Release 附件二次打包 |
-            | `cli-manifest.json` / `manifest.json` | 本工作流按最终 bundle 内容重新生成 |
+            | `${{ needs.download-openclaw.outputs.openclaw_version }}/*` | `openclaw/openclaw` 官方 GitHub Release 附件二次打包 |
+            | `manifest.json` | 从 CDN 下载，来源于 sync-openclaw 发布结果 |
             | `install.sh` / `install.ps1` | 当前仓库 installer GitHub Release 附件 |
 
             ### 📥 下载说明
@@ -834,12 +777,10 @@ jobs:
 
             ### 🚀 安装步骤
 
-            > ⚠️ **前提：** 使用脚本离线安装时，仍需预先安装 [Node.js](https://nodejs.org/) >= 18。
-
             每个离线包同时包含：
             - 可直接运行的 GUI 安装器
             - 可供 `install.sh` / `install.ps1` 使用的本地离线 bundle 目录
-            - 与 bundle 实际内容一致的离线 manifest 和校验和
+            - 当前版本对应的一套 OpenClaw 离线包
 
             **macOS / Linux：**
             ```bash

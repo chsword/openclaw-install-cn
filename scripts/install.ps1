@@ -12,10 +12,14 @@
   OpenClaw installation directory. Default: %LOCALAPPDATA%\OpenClaw
 .PARAMETER LocalBundle
   Path to a local bundle directory to skip ALL network downloads
-  (offline / air-gap mode).  The directory must mirror the CDN structure:
+  (offline / air-gap mode). Preferred bundle structure:
+    {LocalBundle}\manifest.json
+    {LocalBundle}\oclaw\oclaw-win-x64.exe
+    {LocalBundle}\gui\openclaw-gui-*
+    {LocalBundle}\{version}\openclaw-{version}-win32-{arch}.zip
+  Legacy bundle structure is also supported:
     {LocalBundle}\cli-manifest.json
     {LocalBundle}\cli\{version}\oclaw-{version}-win32-{arch}.zip
-    {LocalBundle}\manifest.json
     {LocalBundle}\pkg\{version}\openclaw-{version}-win32-{arch}.zip
   Can also be set via the OCLAW_LOCAL_BUNDLE environment variable.
 .PARAMETER NodeMirror
@@ -433,7 +437,9 @@ function Install-FromCdn {
   }
 
   # Cleanup temp
-  Remove-Item -Path $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
+  if ($tmpDir) {
+    Remove-Item -Path $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
+  }
 }
 
 # ── Offline local bundle install ──────────────────────────────────────────────
@@ -444,21 +450,6 @@ function Install-FromLocalBundle {
   }
   $bundle = $bundle.Path
   Write-Info "Offline mode: using local bundle at $bundle"
-
-  # Node.js is still required to run the oclaw CLI.
-  # In local bundle mode we do NOT auto-install Node.js from the internet.
-  $nodePath = Get-Command node -ErrorAction SilentlyContinue
-  if (-not $nodePath) {
-    Write-Fail "Node.js is required but not found.
-  In offline mode, please install Node.js >= 18 manually before running this script."
-  }
-
-  $nodeVer = & node -e "process.stdout.write(process.versions.node)"
-  $major   = [int]($nodeVer -split '\.')[0]
-  if ($major -lt 18) {
-    Write-Fail "Node.js $nodeVer is too old (need >= 18). Please upgrade manually and retry."
-  }
-  Write-Success "Node.js $nodeVer detected."
 
   # Ensure bin dir
   if (-not (Test-Path $OclawBinDir)) {
@@ -472,52 +463,61 @@ function Install-FromLocalBundle {
   if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { $arch = 'arm64' }
   Write-Verbose-Log "Platform: win32-${arch}"
 
-  # Read CLI version from local cli-manifest.json
-  $cliManifestPath = Join-Path $bundle 'cli-manifest.json'
-  if (-not (Test-Path $cliManifestPath)) {
-    Write-Fail "cli-manifest.json not found in bundle: $bundle"
+  $directExePath = Join-Path $bundle "oclaw\oclaw-win-$arch.exe"
+  if ($arch -eq 'arm64' -and -not (Test-Path $directExePath)) {
+    Write-Warn "arm64 oclaw binary not found in bundle, falling back to x64..."
+    $arch = 'x64'
+    $directExePath = Join-Path $bundle 'oclaw\oclaw-win-x64.exe'
   }
-  $cliManifest = Get-Content $cliManifestPath -Raw | ConvertFrom-Json
-  $cliVer = $cliManifest.latest
-  Write-Info "CLI version from local bundle: $cliVer"
 
-  # Locate CLI archive in bundle; fall back from arm64 to x64 if needed
-  $cliPkgName = "oclaw-${cliVer}-win32-${arch}.zip"
-  $cliPkgPath = Join-Path $bundle "cli\$cliVer\$cliPkgName"
-  Write-Verbose-Log "CLI package path: $cliPkgPath"
-  if ($arch -eq 'arm64' -and -not (Test-Path $cliPkgPath)) {
-    Write-Warn "arm64 CLI package not found in bundle, falling back to x64..."
-    $arch       = 'x64'
-    $cliPkgName = "oclaw-${cliVer}-win32-x64.zip"
+  if (Test-Path $directExePath) {
+    Write-Info "Using bundled oclaw binary: $(Split-Path $directExePath -Leaf)"
+    Copy-Item -Path $directExePath -Destination (Join-Path $OclawBinDir 'oclaw.exe') -Force
+  } else {
+    $cliManifestPath = Join-Path $bundle 'cli-manifest.json'
+    if (-not (Test-Path $cliManifestPath)) {
+      Write-Fail "Neither direct oclaw binary nor cli-manifest.json found in bundle: $bundle"
+    }
+    $cliManifest = Get-Content $cliManifestPath -Raw | ConvertFrom-Json
+    $cliVer = $cliManifest.latest
+    Write-Info "CLI version from legacy local bundle: $cliVer"
+
+    $cliPkgName = "oclaw-${cliVer}-win32-${arch}.zip"
     $cliPkgPath = Join-Path $bundle "cli\$cliVer\$cliPkgName"
-    Write-Verbose-Log "Fallback CLI package path: $cliPkgPath"
-  }
-  if (-not (Test-Path $cliPkgPath)) {
-    Write-Fail "CLI package not found in bundle: $cliPkgPath"
-  }
+    Write-Verbose-Log "CLI package path: $cliPkgPath"
+    if ($arch -eq 'arm64' -and -not (Test-Path $cliPkgPath)) {
+      Write-Warn "arm64 CLI package not found in bundle, falling back to x64..."
+      $arch       = 'x64'
+      $cliPkgName = 'oclaw-' + $cliVer + '-win32-x64.zip'
+      $cliPkgPath = Join-Path $bundle "cli\$cliVer\$cliPkgName"
+      Write-Verbose-Log "Fallback CLI package path: $cliPkgPath"
+    }
+    if (-not (Test-Path $cliPkgPath)) {
+      Write-Fail "CLI package not found in bundle: $cliPkgPath"
+    }
 
-  $tmpDir = Join-Path $env:TEMP "oclaw-local-bootstrap"
-  Write-Verbose-Log "Temporary directory: $tmpDir"
-  if (-not (Test-Path $tmpDir)) {
-    New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
-  }
+    $tmpDir = Join-Path $env:TEMP 'oclaw-local-bootstrap'
+    Write-Verbose-Log "Temporary directory: $tmpDir"
+    if (-not (Test-Path $tmpDir)) {
+      New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
+    }
 
-  Write-Info "Extracting oclaw CLI from local bundle..."
-  Expand-Archive -Force -LiteralPath "$cliPkgPath" -DestinationPath "$tmpDir"
+    Write-Info 'Extracting oclaw CLI from legacy local bundle...'
+    Expand-Archive -Force -LiteralPath "$cliPkgPath" -DestinationPath "$tmpDir"
 
-  # Find oclaw.exe – canonical name; fall back to legacy platform-specific name for older bundles.
-  $exePath = Get-ChildItem -Path $tmpDir -Filter 'oclaw.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-  if (-not $exePath) {
-    $legacyExeName = "oclaw-win-${arch}.exe"
-    $exePath = Get-ChildItem -Path $tmpDir -Filter $legacyExeName -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-  }
-  if (-not $exePath) {
-    $extractedNames = (Get-ChildItem -Path $tmpDir -Recurse -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name) -join "`n"
-    Write-Verbose-Log "Extracted contents:`n$extractedNames"
-    Write-Fail "Could not find oclaw.exe in CLI package."
-  }
+    $exePath = Get-ChildItem -Path $tmpDir -Filter 'oclaw.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $exePath) {
+      $legacyExeName = "oclaw-win-${arch}.exe"
+      $exePath = Get-ChildItem -Path $tmpDir -Filter $legacyExeName -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+    }
+    if (-not $exePath) {
+      $extractedNames = (Get-ChildItem -Path $tmpDir -Recurse -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name) -join "`n"
+      Write-Verbose-Log "Extracted contents:`n$extractedNames"
+      Write-Fail 'Could not find oclaw.exe in CLI package.'
+    }
 
-  Copy-Item -Path $exePath.FullName -Destination (Join-Path $OclawBinDir 'oclaw.exe') -Force
+    Copy-Item -Path $exePath.FullName -Destination (Join-Path $OclawBinDir 'oclaw.exe') -Force
+  }
   Write-Success "oclaw CLI installed to $OclawBinDir\oclaw.exe"
 
   # Add to PATH for this session

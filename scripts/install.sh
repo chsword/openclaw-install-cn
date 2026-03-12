@@ -17,10 +17,14 @@
 # network downloads.  Useful for air-gap environments or when
 # you have a pre-downloaded "complete package".
 #
-# The directory must mirror the CDN structure:
+# Preferred offline bundle structure:
+#   {OCLAW_LOCAL_BUNDLE}/manifest.json
+#   {OCLAW_LOCAL_BUNDLE}/oclaw/oclaw-{os}-{arch}
+#   {OCLAW_LOCAL_BUNDLE}/gui/openclaw-gui-*
+#   {OCLAW_LOCAL_BUNDLE}/{version}/openclaw-{version}-{os}-{arch}.tar.gz
+# Legacy bundle structure is also supported:
 #   {OCLAW_LOCAL_BUNDLE}/cli-manifest.json
 #   {OCLAW_LOCAL_BUNDLE}/cli/{version}/oclaw-{version}-{os}-{arch}.tar.gz
-#   {OCLAW_LOCAL_BUNDLE}/manifest.json
 #   {OCLAW_LOCAL_BUNDLE}/pkg/{version}/openclaw-{version}-{os}-{arch}.tar.gz
 #
 # Example:
@@ -478,23 +482,6 @@ _install_from_local_bundle() {
 
   info "Offline mode: using local bundle at $bundle"
 
-  # Node.js is still required to run the oclaw CLI (unless using a standalone binary).
-  # In local bundle mode we do NOT auto-install Node.js from the internet.
-  if ! command -v node &>/dev/null; then
-    die "Node.js is required but not found.
-  In offline mode, please install Node.js >= 18 manually before running this script.
-  Download Node.js from a mirror you have access to, e.g.:
-    https://npmmirror.com/mirrors/node"
-  fi
-
-  local node_ver major
-  node_ver=$(node -e "process.stdout.write(process.versions.node)")
-  major=$(echo "$node_ver" | cut -d. -f1)
-  if [ "$major" -lt 18 ]; then
-    die "Node.js ${node_ver} is too old (need >= 18). Please upgrade manually and retry."
-  fi
-  success "Node.js ${node_ver} detected."
-
   mkdir -p "$OCLAW_BIN_DIR"
 
   # Determine platform identifiers
@@ -509,36 +496,51 @@ _install_from_local_bundle() {
   esac
   verbose "Platform: ${os_name}-${arch_name}"
 
-  # Resolve CLI version from local cli-manifest.json
-  local cli_manifest="$bundle/cli-manifest.json"
-  [ -f "$cli_manifest" ] || die "cli-manifest.json not found in bundle: $bundle"
-
-  local cli_ver
-  cli_ver=$(node -e "process.stdout.write(require('$cli_manifest').latest)" 2>/dev/null) \
-    || die "Could not read CLI version from $cli_manifest"
-  info "CLI version from local bundle: $cli_ver"
-
-  # Locate CLI archive in bundle
-  local cli_pkg_name="oclaw-${cli_ver}-${os_name}-${arch_name}.tar.gz"
-  local cli_pkg_path="$bundle/cli/${cli_ver}/${cli_pkg_name}"
-  verbose "CLI package path: $cli_pkg_path"
-  [ -f "$cli_pkg_path" ] \
-    || die "CLI package not found in bundle: $cli_pkg_path"
-
-  local tmp_dir
-  tmp_dir=$(mktemp -d)
-  trap 'rm -rf "$tmp_dir"' EXIT
-  verbose "Temporary directory: $tmp_dir"
-
-  info "Extracting oclaw CLI from local bundle…"
-  tar -xzf "$cli_pkg_path" -C "$tmp_dir"
-
-  local bin_src="$tmp_dir/oclaw"
-  [ -f "$bin_src" ] || bin_src="$tmp_dir/bin/oclaw"
-  [ -f "$bin_src" ] || bin_src="$tmp_dir/oclaw-${os_name}-${arch_name}"  # legacy fallback
+  local bin_src="$bundle/oclaw/oclaw-${os_name}-${arch_name}"
   if [ ! -f "$bin_src" ]; then
-    verbose "Extracted contents: $(ls -1 "$tmp_dir" 2>/dev/null || echo '(empty)')"
-    die "Could not find oclaw binary in CLI package."
+    local cli_manifest="$bundle/cli-manifest.json"
+    [ -f "$cli_manifest" ] || die "Neither direct oclaw binary nor cli-manifest.json found in bundle: $bundle"
+
+    local cli_ver
+    if command -v node &>/dev/null; then
+      cli_ver=$(node -e "process.stdout.write(require('$cli_manifest').latest)" 2>/dev/null) \
+        || die "Could not read CLI version from $cli_manifest"
+    elif command -v python3 &>/dev/null; then
+      cli_ver=$(python3 - <<PYEOF
+import json
+with open(r'''$cli_manifest''', 'r', encoding='utf-8') as fh:
+    print(str(json.load(fh).get('latest', '')).strip())
+PYEOF
+      )
+      [ -n "$cli_ver" ] || die "Could not read CLI version from $cli_manifest"
+    else
+      die "Legacy bundle detected, but neither node nor python3 is available to parse cli-manifest.json"
+    fi
+    info "CLI version from legacy local bundle: $cli_ver"
+
+    local cli_pkg_name="oclaw-${cli_ver}-${os_name}-${arch_name}.tar.gz"
+    local cli_pkg_path="$bundle/cli/${cli_ver}/${cli_pkg_name}"
+    verbose "CLI package path: $cli_pkg_path"
+    [ -f "$cli_pkg_path" ] \
+      || die "CLI package not found in bundle: $cli_pkg_path"
+
+    local tmp_dir
+    tmp_dir=$(mktemp -d)
+    trap 'rm -rf "$tmp_dir"' EXIT
+    verbose "Temporary directory: $tmp_dir"
+
+    info "Extracting oclaw CLI from legacy local bundle…"
+    tar -xzf "$cli_pkg_path" -C "$tmp_dir"
+
+    bin_src="$tmp_dir/oclaw"
+    [ -f "$bin_src" ] || bin_src="$tmp_dir/bin/oclaw"
+    [ -f "$bin_src" ] || bin_src="$tmp_dir/oclaw-${os_name}-${arch_name}"
+    if [ ! -f "$bin_src" ]; then
+      verbose "Extracted contents: $(ls -1 "$tmp_dir" 2>/dev/null || echo '(empty)')"
+      die "Could not find oclaw binary in CLI package."
+    fi
+  else
+    info "Using bundled oclaw binary: $(basename "$bin_src")"
   fi
 
   chmod +x "$bin_src"
