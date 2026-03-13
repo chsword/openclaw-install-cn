@@ -33,6 +33,10 @@
     ],
     "createUpdaterArtifacts": false,
     "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
       "nsis": {
         "installerIcon": "../assets/icon.ico"
       }
