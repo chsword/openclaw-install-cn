@@ -1,6 +1,22 @@
 {
-  "latest": "1.0.27",
+  "latest": "1.0.28",
   "versions": [
+    {
+      "version": "1.0.28",
+      "releaseDate": "2026-03-13",
+      "files": {
+        "win32-x64": "oclaw-1.0.28-win32-x64.zip",
+        "darwin-x64": "oclaw-1.0.28-darwin-x64.tar.gz",
+        "darwin-arm64": "oclaw-1.0.28-darwin-arm64.tar.gz",
+        "linux-x64": "oclaw-1.0.28-linux-x64.tar.gz"
+      },
+      "checksums": {
+        "win32-x64": "sha256:2cb723a64d485879988f75ae7aee3f81eb5923164a54d02f3f67e86f9e6ad071",
+        "darwin-x64": "sha256:7d0a2fe168640fa3e97da730ec51b51f83ed02810735b8df2cb1743f12639e89",
+        "darwin-arm64": "sha256:0993bcf0423018ce983cbd85506fdcde6064819ca3d1c5529520e65422c2d1c6",
+        "linux-x64": "sha256:6a5623b9c53e18297ecfabcb3cfdfe8a14e088d17a8be323c8ddcb48d48f8eb6"
+      }
+    },
     {
       "version": "1.0.27",
       "releaseDate": "2026-03-12",
