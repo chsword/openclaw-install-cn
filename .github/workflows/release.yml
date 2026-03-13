@@ -326,6 +326,30 @@ jobs:
           console.log('tauri.conf.json version set to', conf.version);
           "
 
+      - name: Update GUI version in Cargo.toml
+        shell: bash
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          python3 - <<'PY'
+          import os
+          version = os.environ['VERSION']
+          path = 'gui/src-tauri/Cargo.toml'
+          with open(path) as f:
+              lines = f.readlines()
+          in_package = False
+          for i, line in enumerate(lines):
+              if line.strip() == '[package]':
+                  in_package = True
+              elif line.startswith('[') and i > 0 and in_package:
+                  in_package = False
+              elif in_package and line.startswith('version ='):
+                  lines[i] = f'version = "{version}"\n'
+                  break
+          with open(path, 'w') as f:
+              f.writelines(lines)
+          PY
+
       - name: Generate placeholder icons
         run: node scripts/gen-icons.js
 

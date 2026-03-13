@@ -448,7 +448,9 @@ btnClearLogs.addEventListener('click', doClearLogs);
 /* ── Global renderer error boundary ───────────────────────────────────────── */
 window.onerror = function (message, source, lineno, colno, error) {
   const stack = error && error.stack ? error.stack : `${source}:${lineno}:${colno}`;
-  window.oclaw.logError(String(message), stack);
+  if (window.oclaw && typeof window.oclaw.logError === 'function') {
+    window.oclaw.logError(String(message), stack);
+  }
   showMessage('发生意外错误，请重启应用。如问题持续，请查看错误日志。', 'error');
   return true; // prevent default browser error handling
 };
@@ -457,7 +459,9 @@ window.onunhandledrejection = function (event) {
   const reason = event.reason;
   const message = reason instanceof Error ? reason.message : String(reason);
   const stack   = reason instanceof Error ? reason.stack   : undefined;
-  window.oclaw.logError(message, stack);
+  if (window.oclaw && typeof window.oclaw.logError === 'function') {
+    window.oclaw.logError(message, stack);
+  }
   showMessage('发生未处理的异步错误，请重试。如问题持续，请查看错误日志。', 'error');
 };
 
