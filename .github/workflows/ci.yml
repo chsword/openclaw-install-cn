@@ -238,6 +238,125 @@ jobs:
         run: npm test
         working-directory: gui
 
+  # ── Test Coverage (Linux + Node 20 only) ─────────────────────────────────
+  # Generates LCOV reports for CLI and GUI, then uploads to Codecov.
+  # Runs on every push/PR (informational only – does not block the release).
+  coverage:
+    name: Test Coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: cli/package-lock.json
+
+      - name: Cache CLI node_modules
+        uses: actions/cache@v4
+        id: cache-coverage-node-modules
+        with:
+          path: cli/node_modules
+          key: ${{ runner.os }}-node20-cli-node-modules-${{ hashFiles('cli/package-lock.json') }}
+
+      - name: Install CLI dependencies
+        if: steps.cache-coverage-node-modules.outputs.cache-hit != 'true'
+        run: npm ci
+        working-directory: cli
+
+      - name: CLI coverage (LCOV)
+        run: |
+          node --test \
+            --experimental-test-coverage \
+            --test-reporter=lcov \
+            --test-reporter-destination=coverage.lcov \
+            --test-reporter=spec \
+            --test-reporter-destination=stdout \
+            src/__tests__/config.test.js \
+            src/__tests__/platform.test.js \
+            src/__tests__/upgrade.test.js \
+            src/__tests__/logger.test.js \
+            src/__tests__/completion.test.js \
+            src/__tests__/status.test.js \
+            src/__tests__/config-cmd.test.js \
+            src/__tests__/runtime.test.js
+        working-directory: cli
+
+      - name: GUI coverage (LCOV)
+        run: |
+          node --test \
+            --experimental-test-coverage \
+            --test-reporter=lcov \
+            --test-reporter-destination=coverage.lcov \
+            --test-reporter=spec \
+            --test-reporter-destination=stdout \
+            src/__tests__/config.test.js \
+            src/__tests__/platform.test.js \
+            src/__tests__/logger.test.js \
+            src/__tests__/registry.test.js \
+            src/__tests__/runtime.test.js
+        working-directory: gui
+
+      - name: Upload CLI coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: cli/coverage.lcov
+          flags: cli
+          name: cli-coverage
+          fail_ci_if_error: false
+
+      - name: Upload GUI coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: gui/coverage.lcov
+          flags: gui
+          name: gui-coverage
+          fail_ci_if_error: false
+
+  # ── Pester coverage for Windows bootstrap script ─────────────────────────
+  coverage-bootstrap-windows:
+    name: Bootstrap Coverage (Windows / Pester)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Pester 5
+        shell: pwsh
+        run: Install-Module -Name Pester -Force -SkipPublisherCheck -MinimumVersion 5.0.0
+
+      - name: Run Pester tests with coverage
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Import-Module Pester
+          $cfg = New-PesterConfiguration
+          $cfg.Run.Path            = 'scripts/__tests__/install.ps1.Tests.ps1'
+          $cfg.Output.Verbosity    = 'Detailed'
+          $cfg.Run.Exit            = $true
+          $cfg.CodeCoverage.Enabled           = $true
+          $cfg.CodeCoverage.Path              = @('scripts/install.ps1')
+          $cfg.CodeCoverage.OutputFormat      = 'CoverageGutters'
+          $cfg.CodeCoverage.OutputPath        = 'scripts/coverage.lcov'
+          Invoke-Pester -Configuration $cfg
+
+      - name: Upload PowerShell coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: scripts/coverage.lcov
+          flags: powershell
+          name: powershell-coverage
+          fail_ci_if_error: false
+
   # ── Security: npm audit ───────────────────────────────────────────────────
   audit:
     name: Security audit (npm audit)
