@@ -7,7 +7,7 @@
     // Tauri global API unavailable: expose stubs that surface a clear error.
     // This can happen when opening the HTML directly in a browser instead of
     // through a tauri build, or if withGlobalTauri is not enabled.
-    const unavailable = () => Promise.reject(new Error('Tauri API 不可用，请通过正规构建版本运行 GUI。'));
+    const unavailable = () => Promise.resolve({ success: false, error: 'Tauri API 不可用，请通过正规构建版本运行 GUI。' });
     window.oclaw = {
       getStatus:          unavailable,
       checkLatest:        () => Promise.resolve({ success: false, error: 'Tauri API 不可用' }),
