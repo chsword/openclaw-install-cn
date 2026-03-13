@@ -1,13 +1,29 @@
 'use strict';
 
+/**
+ * Runtime execution helpers: process spawning, binary detection, version
+ * parsing, and install command generation.
+ */
+
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
+/** Default pnpm registry used for all install operations. */
 const PNPM_REGISTRY = 'https://registry.npmmirror.com';
+
+/** pnpm package specifier used when installing openclaw. */
 const OPENCLAW_PACKAGE_SPEC = 'openclaw@latest';
+
+/** URL shown to users when Node.js must be installed manually. */
 const NODEJS_DOWNLOAD_URL = 'https://nodejs.org/zh-cn/download';
 
+/**
+ * Return the ordered list of executable names to try for the given command.
+ * On Windows, `.cmd` and `.exe` variants are prepended as appropriate.
+ * @param {string} command - Base command name (e.g. `'node'`, `'pnpm'`).
+ * @returns {string[]}
+ */
 function getExecutableCandidates(command) {
   if (process.platform !== 'win32') {
     return [command];
@@ -24,15 +40,43 @@ function getExecutableCandidates(command) {
   return [`${command}.cmd`, `${command}.exe`, command];
 }
 
+/**
+ * Wrap a value in double-quotes, escaping any embedded double-quotes, for use
+ * as a cmd.exe argument.
+ * @param {string} value
+ * @returns {string}
+ */
 function quoteForCmd(value) {
   return `"${String(value).replace(/"/g, '""')}"`;
 }
 
+/**
+ * Wrap a value in double-quotes only when it contains characters that require
+ * quoting under cmd.exe (spaces, quotes, shell meta-characters).
+ * @param {string} value
+ * @returns {string}
+ */
 function formatForCmd(value) {
   const text = String(value);
   return /[\s"&|<>^()]/.test(text) ? quoteForCmd(text) : text;
 }
 
+/**
+ * Spawn an executable with the given arguments and return a Promise that
+ * resolves with `{ stdout, stderr, code }` on exit code 0, or rejects with
+ * an enriched Error otherwise.
+ *
+ * `.cmd` / `.bat` executables on Windows are invoked via `cmd.exe /s /c`
+ * (shell: true) so that the shim forwarding works correctly.
+ *
+ * @param {string} executable - Full path or command name to execute.
+ * @param {string[]} [args]   - Arguments to pass to the process.
+ * @param {object}  [options] - Options forwarded to `child_process.spawn`,
+ *   plus optional `onStdout` / `onStderr` streaming callbacks.
+ * @param {(chunk: string) => void} [options.onStdout]
+ * @param {(chunk: string) => void} [options.onStderr]
+ * @returns {Promise<{stdout: string, stderr: string, code: number}>}
+ */
 function spawnOnce(executable, args = [], options = {}) {
   const useCmdShim = process.platform === 'win32' && /\.(cmd|bat)$/i.test(executable);
   return new Promise((resolve, reject) => {
@@ -82,6 +126,15 @@ function spawnOnce(executable, args = [], options = {}) {
   });
 }
 
+/**
+ * Run `command` with `args`, trying each executable candidate in turn.
+ * On ENOENT the next candidate is tried; any other error is re-thrown
+ * immediately.
+ * @param {string}   command         - Base command name.
+ * @param {string[]} [args]          - Arguments to pass.
+ * @param {object}   [options]       - Options forwarded to `spawnOnce`.
+ * @returns {Promise<{stdout: string, stderr: string, code: number, executable: string}>}
+ */
 async function runCommand(command, args = [], options = {}) {
   const candidates = getExecutableCandidates(command);
   let lastError = null;
@@ -105,6 +158,13 @@ async function runCommand(command, args = [], options = {}) {
   throw lastError || new Error(`${command} not found`);
 }
 
+/**
+ * Extract the first semver-like version string from command output.
+ * Returns the raw first word when no `x.y.z` pattern is found, or `null`
+ * for empty input.
+ * @param {string|undefined} output
+ * @returns {string|null}
+ */
 function parseVersion(output) {
   const text = String(output || '').trim();
   if (!text) {
@@ -115,6 +175,12 @@ function parseVersion(output) {
   return match ? match[1] : text.split(/\s+/)[0];
 }
 
+/**
+ * Parse the openclaw package version from the JSON output of
+ * `pnpm ls -g openclaw --json --depth 0`.
+ * @param {string|undefined} output - Raw stdout from `pnpm ls`.
+ * @returns {string|null}
+ */
 function parseOpenclawVersionFromPnpmList(output) {
   const text = String(output || '').trim();
   if (!text) {
@@ -141,6 +207,12 @@ function parseOpenclawVersionFromPnpmList(output) {
   return null;
 }
 
+/**
+ * Compare two semver strings numerically.
+ * @param {string} a
+ * @param {string} b
+ * @returns {-1|0|1} Negative if a < b, 0 if equal, positive if a > b.
+ */
 function compareVersions(a, b) {
   const left = String(a || '').replace(/^v/, '').split('.').map((part) => Number.parseInt(part, 10) || 0);
   const right = String(b || '').replace(/^v/, '').split('.').map((part) => Number.parseInt(part, 10) || 0);
@@ -156,6 +228,12 @@ function compareVersions(a, b) {
   return 0;
 }
 
+/**
+ * Return a deduplicated list of common Node.js installation paths on Windows.
+ * Environment variables (`LOCALAPPDATA`, `USERPROFILE`) are consulted when
+ * available.
+ * @returns {string[]}
+ */
 function getWindowsNodeCandidatePaths() {
   const candidates = [
     'C:\\Program Files\\nodejs\\node.exe',
@@ -173,6 +251,12 @@ function getWindowsNodeCandidatePaths() {
   return [...new Set(candidates)];
 }
 
+/**
+ * Return the unique set of directory paths that contain the Node.js
+ * executable, derived from a known path and/or the standard candidate list.
+ * @param {string|null|undefined} nodePath - Resolved path to `node.exe`, if known.
+ * @returns {string[]}
+ */
 function getWindowsNodeDirectoryCandidates(nodePath) {
   const dirs = [];
 
@@ -187,6 +271,12 @@ function getWindowsNodeDirectoryCandidates(nodePath) {
   return [...new Set(dirs.filter(Boolean))];
 }
 
+/**
+ * Return candidate paths for the npm executable that ships bundled with
+ * Node.js, based on the resolved node path and known installation directories.
+ * @param {string|null|undefined} nodePath - Resolved path to `node.exe`, if known.
+ * @returns {string[]}
+ */
 function getNodeBundledNpmCandidates(nodePath) {
   const candidates = [];
   const dirs = getWindowsNodeDirectoryCandidates(nodePath);
@@ -200,6 +290,12 @@ function getNodeBundledNpmCandidates(nodePath) {
   return [...new Set(candidates)];
 }
 
+/**
+ * Return a deduplicated list of common pnpm/npm shim paths on Windows for
+ * the given command (e.g. `'pnpm'`, `'openclaw'`).
+ * @param {string} command - Command name without extension.
+ * @returns {string[]}
+ */
 function getWindowsShimCandidatePaths(command) {
   const candidates = [];
 
@@ -222,6 +318,13 @@ function getWindowsShimCandidatePaths(command) {
   return [...new Set(candidates)];
 }
 
+/**
+ * Resolve the full path to a command on Windows using `where.exe`.
+ * Returns `null` on non-Windows platforms, when the command already contains
+ * a path separator, or when `where.exe` fails.
+ * @param {string} command - Command name to resolve.
+ * @returns {Promise<string|null>}
+ */
 async function resolveWindowsCommandPath(command) {
   if (process.platform !== 'win32' || /[\\/]/.test(command)) {
     return null;
@@ -239,6 +342,14 @@ async function resolveWindowsCommandPath(command) {
   }
 }
 
+/**
+ * Iterate over `candidatePaths`, skip paths that don't exist, and return the
+ * first one that responds successfully to the given `args`.  Returns `null`
+ * when no candidate succeeds.
+ * @param {string[]} args           - Arguments passed to each candidate.
+ * @param {string[]} candidatePaths - Absolute paths to try in order.
+ * @returns {Promise<{installed: boolean, version: string|null, raw: string, error: null, source: string, path: string}|null>}
+ */
 async function detectWindowsCandidateBinary(args, candidatePaths) {
   for (const candidate of candidatePaths) {
     if (!fs.existsSync(candidate)) {
@@ -264,6 +375,15 @@ async function detectWindowsCandidateBinary(args, candidatePaths) {
   return null;
 }
 
+/**
+ * Detect whether a binary is available and retrieve its version string.
+ * On Windows, common installation paths are checked as a fallback when the
+ * command is not on PATH.
+ * @param {string}   command    - Command name (e.g. `'node'`, `'pnpm'`).
+ * @param {string[]} [args]     - Arguments used to probe the version; defaults
+ *   to `['--version']`.
+ * @returns {Promise<{installed: boolean, version: string|null, raw: string, error: string|null, source: string, path: string|null}>}
+ */
 async function detectBinary(command, args = ['--version']) {
   try {
     const result = await runCommand(command, args);
@@ -298,6 +418,15 @@ async function detectBinary(command, args = ['--version']) {
   }
 }
 
+/**
+ * Detect the installed versions of node, pnpm and openclaw in parallel.
+ * Falls back to `pnpm ls -g` for openclaw when its CLI binary is not found.
+ * @returns {Promise<{
+ *   node:     {installed: boolean, version: string|null, supported: boolean},
+ *   pnpm:     {installed: boolean, version: string|null},
+ *   openclaw: {installed: boolean, version: string|null},
+ * }>}
+ */
 async function inspectEnvironment() {
   const [node, pnpm, openclawCli] = await Promise.all([
     detectBinary('node', ['--version']),
@@ -337,18 +466,38 @@ async function inspectEnvironment() {
   };
 }
 
+/**
+ * Return the argument list for the pnpm global-install command.
+ * @returns {string[]}
+ */
 function getInstallCommandArgs() {
   return ['add', '-g', OPENCLAW_PACKAGE_SPEC, `--registry=${PNPM_REGISTRY}`];
 }
 
+/**
+ * Return the full install command as a human-readable string.
+ * @returns {string}
+ */
 function getInstallCommandString() {
   return `pnpm ${getInstallCommandArgs().join(' ')}`;
 }
 
+/**
+ * Run `pnpm add -g openclaw@latest` with the npmmirror registry.
+ * @param {object} [options] - Options forwarded to `runCommand`.
+ * @returns {Promise<{stdout: string, stderr: string, code: number}>}
+ */
 async function installOpenclaw(options = {}) {
   return runCommand('pnpm', getInstallCommandArgs(), options);
 }
 
+/**
+ * Install pnpm globally via `npm install -g pnpm`.
+ * On Windows, falls back to bundled npm candidates next to node.exe when npm
+ * is not on PATH.
+ * @param {object} [options] - Options forwarded to `runCommand`.
+ * @returns {Promise<{stdout: string, stderr: string, code: number}>}
+ */
 async function installPnpm(options = {}) {
   const args = ['install', '-g', 'pnpm', `--registry=${PNPM_REGISTRY}`];
 
@@ -379,6 +528,15 @@ async function installPnpm(options = {}) {
   }
 }
 
+/**
+ * Install Node.js using the platform's native package manager:
+ * - **Windows**: `winget install OpenJS.NodeJS.LTS`
+ * - **macOS**: `brew install node`
+ * - **Other**: throws an error with a manual download URL.
+ *
+ * @param {object} [options] - Options forwarded to `runCommand`.
+ * @returns {Promise<{stdout: string, stderr: string, code: number}>}
+ */
 async function installNodejs(options = {}) {
   const platform = process.platform;
 
