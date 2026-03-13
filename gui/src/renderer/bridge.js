@@ -2,8 +2,27 @@
 
 (function initBridge() {
   const tauri = window.__TAURI__;
+
   if (!tauri || !tauri.core || typeof tauri.core.invoke !== 'function') {
-    throw new Error('Tauri API unavailable. 请通过 tauri dev/tauri build 启动 GUI。');
+    // Tauri global API unavailable: expose stubs that surface a clear error.
+    // This can happen when opening the HTML directly in a browser instead of
+    // through a tauri build, or if withGlobalTauri is not enabled.
+    const unavailable = () => Promise.reject(new Error('Tauri API 不可用，请通过正规构建版本运行 GUI。'));
+    window.oclaw = {
+      getStatus:          unavailable,
+      checkLatest:        () => Promise.resolve({ success: false, error: 'Tauri API 不可用' }),
+      resizeWindow:       () => Promise.resolve({}),
+      installNodejs:      unavailable,
+      installPnpm:        unavailable,
+      install:            unavailable,
+      getLogs:            () => Promise.resolve({ success: true, entries: [] }),
+      clearLogs:          () => Promise.resolve({ success: true }),
+      exportLogs:         () => Promise.resolve({ success: false, error: 'Tauri API 不可用' }),
+      logError:           () => Promise.resolve({}),
+      onInstallProgress:  () => {},
+      offInstallProgress: () => {},
+    };
+    return;
   }
 
   const listeners = new Set();

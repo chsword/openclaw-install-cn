@@ -314,6 +314,45 @@ jobs:
           npm version "${{ steps.ver.outputs.version }}" --no-git-tag-version --allow-same-version
         continue-on-error: true
 
+      - name: Update GUI version in tauri.conf.json
+        shell: bash
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          node -e "
+            const fs = require('fs');
+            const path = 'gui/src-tauri/tauri.conf.json';
+            const conf = JSON.parse(fs.readFileSync(path, 'utf8'));
+            conf.version = process.env.VERSION;
+            fs.writeFileSync(path, JSON.stringify(conf, null, 2) + '\n');
+          "
+        continue-on-error: true
+
+      - name: Update GUI version in Cargo.toml
+        shell: bash
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          python3 - <<'PY'
+          import os
+          version = os.environ['VERSION']
+          path = 'gui/src-tauri/Cargo.toml'
+          with open(path) as f:
+              lines = f.readlines()
+          in_package = False
+          for i, line in enumerate(lines):
+              if line.strip() == '[package]':
+                  in_package = True
+              elif line.startswith('[') and i > 0 and in_package:
+                  in_package = False
+              elif in_package and line.startswith('version ='):
+                  lines[i] = f'version = "{version}"\n'
+                  break
+          with open(path, 'w') as f:
+              f.writelines(lines)
+          PY
+        continue-on-error: true
+
       - name: Generate placeholder icons
         run: node scripts/gen-icons.js
 
