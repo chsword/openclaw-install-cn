@@ -349,7 +349,6 @@ jobs:
           with open(path, 'w') as f:
               f.writelines(lines)
           PY
-        continue-on-error: true
 
       - name: Generate placeholder icons
         run: node scripts/gen-icons.js
